@@ -6,5 +6,5 @@ requests==2.26.0
 urllib3==1.26.6
 beautifulsoup4==4.10.0
 lxml>=4.7.1
-chardet
+faust-cchardet
 Werkzeug==2.2.2
