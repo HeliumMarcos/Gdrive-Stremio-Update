@@ -23,33 +23,45 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        # --- CORREÇÃO SEGURA ---
-        # 1. Troca pontos por espaços (para achar releases scene The.Movie...)
-        # 2. Remove apóstrofos (Carpenter's -> Carpenters) para não quebrar a sintaxe
-        cleaned_string = string.replace(".", " ").replace("'", "")
+        # --- MUDANÇA CRÍTICA ---
+        # Substitui apóstrofos e pontuação por ESPAÇO.
+        # Antes: "Carpenter's" virava "Carpenters" (falhava).
+        # Agora: "Carpenter's" vira "Carpenter s" (Google acha "Carpenter" no nome do arquivo).
+        cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         
-        # Remove espaços duplos
+        # Remove espaços duplos e extras
         cleaned_string = " ".join(cleaned_string.split())
 
         for word in cleaned_string.split(splitter):
             if not word: continue
             
+            # Ignora letras soltas muito curtas que não sejam números (ex: o 's' do Carpenter's ou 'a')
+            # Isso limpa a busca para focar nas palavras chaves fortes.
+            if len(word) < 2 and not word.isdigit():
+                continue
+
             if out:
                 out += f" {chain} "
-            # Busca simples e original que funcionava
+            
             out += f"{get_method(word)} contains '{word}'"
         return out
 
     def get_query(self, sm):
         out = []
+        
+        # DEBUG: Mostra o que chegou do Stremio
+        print(f"--- DEBUG BUSCA ---")
+        print(f"TITULO ORIGINAL (STREMIO): {sm.titles}")
+        print(f"ANO: {sm.year}")
 
         if sm.stream_type == "series":
-            # Adicionei SxxExx junto, pois muitos arquivos usam esse formato
+            # Busca de Séries
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
             
+            # Gera busca de episódios S01E01, 1x01, etc
             seep_q = self.qgen(
-                f"S{sm.se}E{sm.ep}, " # Formato S01E01 junto (importante)
+                f"S{sm.se}E{sm.ep}, "
                 f"s{sm.se} e{sm.ep}, "
                 f"s{int(sm.se)} e{int(sm.ep)}, "
                 f"season {int(sm.se)} episode {int(sm.ep)}, "
@@ -60,45 +72,47 @@ class GoogleDrive:
                 method="fullText",
             )
             for title in sm.titles:
-                # Remove apóstrofos do título antes de mandar buscar
-                clean_t = title.replace("'", "")
+                # Limpa o título para query
+                query_part = self.qgen(title)
                 
-                if len(clean_t.split()) == 1:
+                if not query_part: continue
+
+                if len(title.split()) == 1:
+                    # Título de uma palavra só
+                    clean_t = title.replace("'", " ")
                     out.append(
                         f"fullText contains '\"{clean_t}\"' and "
                         f"name contains '{clean_t}' and ({seep_q})"
                     )
                 else:
-                    out.append(f"{self.qgen(clean_t)} and ({seep_q})")
+                    out.append(f"{query_part} and ({seep_q})")
         else:
+            # Busca de Filmes
             for title in sm.titles:
-                # Remove apóstrofos do título
-                clean_t = title.replace("'", "")
-                
-                if len(clean_t.split()) == 1:
-                    out.append(
-                        f"fullText contains '\"{clean_t}\"' and "
-                        f"name contains '{clean_t}'"
-                    )
-                else:
-                    # Removi a obrigatoriedade do ANO aqui. 
-                    # Deixa o Python filtrar o ano depois, para achar 2024/2025.
-                    out.append(self.qgen(f"{clean_t}"))
+                # Aqui removemos a obrigatoriedade do ano na busca do Google
+                # para evitar que ele esconda arquivos com ano divergente.
+                q = self.qgen(title)
+                if q:
+                    out.append(q)
+        
         return out
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
             if response:
                 output.extend(response.get("files", []))
-            # Se der erro, apenas ignora e segue (evita crash)
             if exception:
-                print(f"Aviso GDrive: {exception}")
+                print(f"Erro GDrive API: {exception}")
 
         output = []
         if self.query:
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
+            
             for q in self.query:
+                # DEBUG: Mostra a query exata enviada ao Google
+                print(f"BUSCA ENVIADA: {q}")
+                
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -110,8 +124,9 @@ class GoogleDrive:
                 batch.add(batch_inst, callback=callb)
             try:
                 batch.execute()
-            except:
-                pass # Se falhar a conexão, não quebra o addon
+            except Exception as e:
+                print(f"Erro fatal no Batch: {e}")
+                
             return output
         return output
 
@@ -157,7 +172,6 @@ class GoogleDrive:
             def check_dupe(item):
                 driveId = item.get("driveId", "MyDrive")
                 md5Checksum = item.get("md5Checksum")
-                # Se não tiver checksum, usa o ID
                 uid = driveId + (md5Checksum if md5Checksum else item.get("id"))
 
                 if uid in uids:
@@ -178,9 +192,9 @@ class GoogleDrive:
     def get_acc_token(self):
         if not self.acc_token.contents: self.acc_token.contents = {}
         
-        # Lógica de expiração segura
-        is_expired = True
         expires = self.acc_token.contents.get("expires_in")
+        is_expired = True
+        
         if expires:
             try:
                 if isinstance(expires, str): expires = datetime.fromisoformat(expires)
