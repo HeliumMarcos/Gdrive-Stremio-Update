@@ -29,11 +29,7 @@ class Streams:
                     self.results.append(self.constructed)
 
         self.results.sort(key=self.best_res, reverse=True)
-        ''' Remove line 32 and 36 if u don't want 4k results on top
-        storeUHD=[i for i in self.results if  ('2160' in i.name or 'UHD' in i.name)]
-        for i in storeUHD:
-            self.results.append(self.results.pop(self.results.index(i)))
-            '''
+
     def is_valid_year(self, movie):
         movie_year = str(movie["sortkeys"].get("year", "0"))
         return movie_year == self.strm_meta.year
@@ -47,17 +43,36 @@ class Streams:
         return False
 
     def get_title(self):
+        # 1. Coleta de dados
         file_name = self.item.get("name")
         file_size = hr_size(int(self.item.get("size")))
-        drive_id = self.item.get("driveId")
-        drive_name = self.gdrive.drive_names.contents.get(drive_id, "Helium")
+        
+        # 2. Extração de metadados do parser
+        hdr_info = self.parsed.get("hdr", [])
+        if isinstance(hdr_info, str): hdr_info = [hdr_info]
+        
+        # Força detecção de DV (Dolby Vision) se presente no nome
+        if "DV" in file_name.upper() and "DV" not in [x.upper() for x in hdr_info]:
+            hdr_info.append("DV")
+        
+        hdr_dv = " ".join(hdr_info) if hdr_info else "SDR"
+        audio = self.parsed.get("audio", "Atmos")
+        channels = self.parsed.get("channels", "5.1")
+        quality = self.parsed.get("quality", "WEB-DL")
+        codec = self.parsed.get("codec", "H.265")
 
-        if len(drive_name) > 100 :
-            drive_name="TeamDrive Name Error"
+        # 3. Formatação das linhas conforme desejado
+        # Linha 1: 📺 HDR DV | 🔊 Atmos - 5.1 | 💾 18.4 GB
+        line1 = f"📺 {hdr_dv} | 🔊 {audio} - {channels} | 💾 {file_size}"
+        
+        # Linha 2: 🎥 WEB-DL | 🎞️ x265 | 🇧🇷
+        line2 = f"🎥 {quality} | 🎞️ {codec} | 🇧🇷"
+        
+        # Linha 3: 📄 Nome do Arquivo (Limpo)
+        clean_name = file_name.rsplit('.', 1)[0].replace('.', ' ')
+        line3 = f"📄 {clean_name}"
 
-        str_format = "🎥;%codec 🌈;%bitDepth;bit 🔊;%audio"
-        suffix = self.parsed.get_str(str_format)
-        return f"{file_name}\n💾 {file_size} ☁️ Helium\n{suffix}"
+        return f"{line1}\n{line2}\n{line3}"
 
     def get_proxy_url(self):
         file_id = self.item.get("id")
@@ -79,11 +94,19 @@ class Streams:
         self.constructed = {}
         self.constructed["behaviorHints"] = {}
         self.constructed["behaviorHints"]["notWebReady"] = True
-        resolution = self.parsed.sortkeys.get("res", "1")
-        self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{resolution}"
+        
+        res_raw = self.parsed.sortkeys.get("res", "")
+        
+        # Mapeamento de nomes de resolução
+        res_map = {
+            "2160p": "2160p (4k)",
+            "1080p": "1080p (Full HD)",
+            "720p": "720p (HD)"
+        }
+        res_display = res_map.get(res_raw.lower(), res_raw)
 
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = self.parsed.get_str(f"[L1 GDrive] %resolution %quality")
+        self.constructed["name"] = f"[L1 GDrive] {res_display}"
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = self.parsed.sortkeys
 
@@ -91,7 +114,7 @@ class Streams:
 
     def best_res(self, item):
         MAX_RES = 2160
-        sortkeys = item.pop("sortkeys")
+        sortkeys = item.get("sortkeys").copy() # Usando copy para não afetar o original
         resolution = sortkeys.get("res")
 
         try:
