@@ -57,7 +57,7 @@ class Streams:
 
         str_format = "🎥;%codec 🌈;%bitDepth;bit 🔊;%audio"
         suffix = self.parsed.get_str(str_format)
-        return f"{file_name}\n💾 {file_size} ☁️ {drive_name}\n{suffix}"
+        return f"{file_name}\n💾 {file_size} ☁️ Helium"
 
     def get_proxy_url(self):
         file_id = self.item.get("id")
