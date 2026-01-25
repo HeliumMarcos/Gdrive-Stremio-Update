@@ -9,8 +9,8 @@ from datetime import datetime
 MANIFEST = {
     "id": "shuvamjaswal.stremio.googledrive",
     "version": "1.1.0",
-    "name": "GDrive",
-    "description": "This plugin fetches content from goolag drive.",
+    "name": "L1 GDrive",
+    "description": "Este plugin busca conteúdo do Google Drive.",
     "logo": "https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/web-512dp/logo_drive_2020q4_color_1x_web_512dp.png",
     "resources": ["stream"],
     "types": ["movie", "series"],
@@ -20,7 +20,7 @@ MANIFEST = {
 
 @app.route("/")
 def init():
-    return "Addon is alive."
+    return "O addon está ativo."
 
 
 @app.route("/manifest.json")
@@ -65,7 +65,7 @@ def get_streams(stream_type, stream_id):
     print(
         f"Got {len(gdrive.results)}/{gdrive.len_response} unique "
         f"results from gdrive after deduping in {time_taken(start_time)}."
-        " Processing results..."
+        " Processando resultados..."
     )
     streams = Streams(gdrive, stream_meta)
     print(
