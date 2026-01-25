@@ -29,34 +29,25 @@ class GoogleDrive:
             "by", "with", "from", "as", "is", "it"
         }
 
-        # 1. Limpeza básica: remove pontuação e apóstrofos
-        # "The Carpenter's Son" -> "The Carpenter s Son"
-        # "The Rip" -> "The Rip"
+        # 1. Limpeza básica
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         cleaned_string = " ".join(cleaned_string.split())
 
         all_words = []
-        # Filtra palavras inúteis menores que 2 letras (mas mantém números)
+        # Filtra palavras inúteis
         for w in cleaned_string.split(splitter):
             if w and (len(w) > 1 or w.isdigit()):
                 all_words.append(w)
 
-        # 2. Identifica palavras "Fortes" (que não são Stop Words)
+        # 2. Identifica palavras "Fortes"
         strong_words = [w for w in all_words if w.lower() not in STOP_WORDS]
 
-        # --- LÓGICA INTELIGENTE (AQUI ESTÁ A MÁGICA) ---
-        # Se o título tiver POUCAS palavras fortes (1 ou menos), precisamos das Stop Words!
-        # Exemplo: "The Rip" -> Strong: ["Rip"]. Count: 1. -> Mantém "The" e "Rip".
-        # Exemplo: "The Carpenter's Son" -> Strong: ["Carpenter", "Son"]. Count: 2. -> Remove "The".
-        
+        # 3. Lógica Híbrida
         if len(strong_words) <= 1:
-            # Título curto/genérico: Usa TUDO para ser específico (ex: "The Rip")
-            final_words = all_words
+            final_words = all_words # Usa tudo (ex: "The Rip")
         else:
-            # Título longo: Usa só as fortes para garantir match (ex: "Carpenter Son")
-            final_words = strong_words
+            final_words = strong_words # Usa só as fortes (ex: "Carpenter Son")
 
-        # Se por acaso a lista ficar vazia (ex: filme chamado "The"), usa o original
         if not final_words:
             final_words = all_words
 
@@ -75,7 +66,6 @@ class GoogleDrive:
         print(f"TITULO: {sm.titles}")
 
         if sm.stream_type == "series":
-            # Busca de Séries
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
             
@@ -103,7 +93,6 @@ class GoogleDrive:
                 else:
                     out.append(f"{query_part} and ({seep_q})")
         else:
-            # Busca de Filmes
             for title in sm.titles:
                 q = self.qgen(title)
                 if q:
@@ -124,7 +113,6 @@ class GoogleDrive:
             batch = self.drive_instance.new_batch_http_request()
             
             for q in self.query:
-                # O log vai te mostrar a diferença agora
                 print(f"BUSCA SMART: {q}") 
                 
                 batch_inst = files.list(
@@ -159,7 +147,9 @@ class GoogleDrive:
         for drive_id in drive_ids:
             if not self.drive_names.contents.get(drive_id):
                 self.drive_names.contents[drive_id] = None
-                batch_inst = drives.get(driveId=drive_id, fields="name, id"), callback=callb)
+                # --- AQUI ESTAVA O ERRO, CORRIGIDO AGORA: ---
+                batch_inst = drives.get(driveId=drive_id, fields="name, id")
+                batch.add(batch_inst, callback=callb)
 
         try:
             batch.execute()
