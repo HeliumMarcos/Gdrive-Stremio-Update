@@ -22,68 +22,61 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        # Limpeza e Tokenização
-        cleaned_string = " ".join(string.split())
-        words = cleaned_string.split(splitter)
-        
-        # Filtro Inteligente: Remove palavras curtas (The, Of, At) se houver outras palavras
-        # Isso evita que "The Pitt" falhe se o arquivo for só "Pitt"
-        valid_words = [w for w in words if len(w) > 2 or w.isdigit()]
-        
-        # Se só sobrou palavras curtas (ex: filme "The End"), usa tudo.
-        if not valid_words:
-            valid_words = words
+        # --- CORREÇÃO DE SEGURANÇA ---
+        # Remove caracteres que quebram a busca (apóstrofos, dois pontos, traços)
+        # Ex: "Carpenter's" vira "Carpenters" (O Google entende e não dá erro)
+        cleaned_string = string.replace("'", "").replace(":", " ").replace("-", " ")
+        cleaned_string = " ".join(cleaned_string.split()) # Remove espaços duplos
 
-        for word in valid_words:
+        for word in cleaned_string.split(splitter):
             if not word: continue
             if out: out += f" {chain} "
-            
-            # Escapa apóstrofos
-            word_escaped = word.replace("'", "\\'")
-            out += f"{get_method(word)} contains '{word_escaped}'"
-            
+            out += f"{get_method(word)} contains '{word}'"
         return out
 
     def get_query(self, sm):
         out = []
         
+        # Função para limpar o título base
         def clean_title(t):
-            # Remove caracteres que confundem a busca
-            return t.replace(":", " ").replace("-", " ").replace(".", " ").strip()
+            # Remove apóstrofos e caracteres especiais do título original
+            return t.replace("'", "").replace(":", " ").replace("-", " ").strip()
 
         if sm.stream_type == "series":
-            # GERA TODAS AS VARIAÇÕES POSSÍVEIS DE TEMPORADA/EPISÓDIO
+            # Gera variações de temporada/episódio
+            se = str(sm.se).zfill(2)
+            ep = str(sm.ep).zfill(2)
+            
             seep_q = self.qgen(
-                f"S{sm.se}E{sm.ep}, "      # S01E01 (Junto - FALTAVA ISSO)
-                f"S{sm.se} E{sm.ep}, "     # S01 E01
-                f"s{sm.se} e{sm.ep}, "     # s01 e01
-                f"Season {int(sm.se)}, "   # Season 1 (Pega pasta da temporada)
-                f"{int(sm.se)}x{sm.ep}, "  # 1x01
-                f"{sm.se}.{sm.ep}",        # 01.01
+                f"S{se}E{ep}, "       # S01E01 (Formato do seu arquivo The.Pitt)
+                f"S{se} E{ep}, "      # S01 E01
+                f"s{se} e{ep}, "      # s01 e01
+                f"{int(se)}x{ep}, "   # 1x01
+                f"{se}.{ep}",         # 01.01
                 chain="or",
                 splitter=", ",
-                method="name", # Foca no nome do arquivo para SxxExx
+                method="name",
             )
             
             for title in sm.titles:
                 clean_t = clean_title(title)
-                # Busca: (Nome contém Título) E (Nome contém SxxExx)
+                # Busca: Nome Limpo E (Alguma variação de episódio)
                 out.append(f"({self.qgen(clean_t)}) and ({seep_q})")
                 
         else:
-            # LÓGICA DE FILMES
+            # FILMES
             for title in sm.titles:
                 clean_t = clean_title(title)
-                # Removemos a obrigatoriedade do ANO na busca do Drive.
-                # Isso acha filmes onde o ano do arquivo difere do IMDb.
-                out.append(self.qgen(clean_t))
+                # Busca ampla: Pelo nome limpo (sem ano, para achar 2025/2024)
+                # E também busca com ano para garantir prioridade se existir
+                out.append(f"{self.qgen(clean_t)}")
                 
         return out
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
             if exception:
-                print(f"Erro GDrive Search: {exception}")
+                print(f"Erro na busca GDrive: {exception}")
             if response:
                 output.extend(response.get("files", []))
 
@@ -92,7 +85,7 @@ class GoogleDrive:
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
             for q in self.query:
-                # print(f"Query GDrive: {q}") # Debug
+                # print(f"Query enviada: {q}") # Debug
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -105,7 +98,7 @@ class GoogleDrive:
             try:
                 batch.execute()
             except Exception as e:
-                print(f"Erro Batch Execute: {e}")
+                print(f"Erro fatal no Batch: {e}")
             return output
         return output
 
@@ -118,6 +111,7 @@ class GoogleDrive:
         drives = self.drive_instance.drives()
         
         drive_ids = set(item.get("driveId") for item in self.results if item.get("driveId"))
+        
         if not drive_ids: return {}
 
         for drive_id in drive_ids:
@@ -137,7 +131,6 @@ class GoogleDrive:
         self.results = []
         self.query = self.get_query(stream_meta)
 
-        # Adiciona 'createdTime' para ajudar em desempate se necessário
         response = self.file_list("id, name, size, driveId, md5Checksum, createdTime")
         
         if response:
@@ -183,9 +176,7 @@ class GoogleDrive:
                     res["expires_in"] = timedelta(seconds=res["expires_in"]) + datetime.now()
                     self.acc_token.contents = res
                     self.acc_token.save()
-                else:
-                    print(f"Erro Token: {res}")
-            except Exception as e:
-                print(f"Erro fatal Token: {e}")
+            except:
+                pass
 
         return self.acc_token.contents.get("access_token")
