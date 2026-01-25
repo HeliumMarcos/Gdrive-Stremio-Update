@@ -22,30 +22,102 @@ class Streams:
                 self.item = item
                 self.parsed = parse_title(item.get("name"))
                 
-                # Garante sortkeys para evitar erros
                 if not hasattr(self.parsed, 'sortkeys'):
                     self.parsed.sortkeys = {}
 
                 self.construct_stream()
                 
-                # --- CORREÇÃO DEFILTRAGEM ---
-                # Removemos as verificações rígidas. 
-                # Se o arquivo veio da busca do Google, ele aparece.
-                self.results.append(self.constructed)
+                # --- FILTRO INTELIGENTE ---
+                if self.is_semi_valid_title(self.constructed):
+                    if self.strm_meta.type == "movie":
+                        if self.is_valid_year(self.constructed):
+                            self.results.append(self.constructed)
+                    else:
+                        self.results.append(self.constructed)
                     
             except Exception as e:
-                # Se der erro em um arquivo, pula pro próximo
                 continue
 
         self.results.sort(key=self.best_res, reverse=True)
 
     def is_valid_year(self, movie):
-        # Desativado: Aceita qualquer ano encontrado
-        return True
+        sortkeys = movie.get("sortkeys", {})
+        file_year_str = str(sortkeys.get("year", "0"))
+        meta_year_str = str(self.strm_meta.year)
+
+        if file_year_str == "0" or not file_year_str.isdigit():
+            return True
+
+        try:
+            file_year = int(file_year_str)
+            meta_year = int(meta_year_str)
+            return abs(file_year - meta_year) <= 1
+        except:
+            return True
 
     def is_semi_valid_title(self, item):
-        # Desativado: Aceita qualquer título encontrado na busca
-        return True
+        """
+        Lógica Blindada:
+        1. Títulos Curtos: Exige frase exata ("The Rip" deve aparecer junto).
+        2. Títulos Longos: Exige presença das palavras chave (ordem flexível).
+        """
+        
+        # Nome do Arquivo Limpo (sem pontos, tudo minúsculo)
+        # Ex: "The.Rip.2025.mkv" -> "the rip 2025 mkv"
+        file_name_raw = item.get("sortkeys", {}).get("title", "") or self.item.get("name", "")
+        file_clean = re.sub(r"[^a-zA-Z0-9]", " ", file_name_raw).lower()
+        file_clean = " ".join(file_clean.split()) # Remove espaços duplos
+
+        match_found = False
+
+        for title in self.strm_meta.titles:
+            # Título Esperado Limpo
+            title_clean = re.sub(r"[^a-zA-Z0-9]", " ", title).lower()
+            title_clean = " ".join(title_clean.split())
+            
+            words = title_clean.split()
+            
+            # --- CENÁRIO 1: TÍTULO CURTO (Até 2 palavras) ---
+            # Ex: "The Rip", "Us", "Iron Man"
+            # AQUI EVITAMOS O ERRO "RIP BLACK THE"
+            if len(words) <= 2:
+                # Verifica se a frase inteira existe dentro do nome do arquivo
+                # Adicionamos espaços em volta para evitar matches parciais (ex: evitar achar 'us' em 'virus')
+                if f" {title_clean} " in f" {file_clean} ":
+                    match_found = True
+                    break
+                # Tentativa sem espaços nas pontas para casos de início/fim de string
+                elif title_clean in file_clean:
+                    # Validação extra: garante que não pegou pedaço de palavra (ex: "The" em "Theatre")
+                    pattern = r'\b' + re.escape(title_clean) + r'\b'
+                    if re.search(pattern, file_clean):
+                        match_found = True
+                        break
+
+            # --- CENÁRIO 2: TÍTULO MÉDIO/LONGO (3+ palavras) ---
+            # Ex: "The Carpenter's Son"
+            else:
+                STOP_WORDS = {"and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a"}
+                strong_words = [w for w in words if w not in STOP_WORDS]
+                
+                # Se só sobrou stop words, usa tudo
+                if not strong_words: strong_words = words
+
+                file_tokens = set(file_clean.split())
+                
+                # Verifica se TODAS as palavras fortes estão no arquivo
+                missing = [w for w in strong_words if w not in file_tokens]
+                
+                if not missing:
+                    match_found = True
+                    break
+                
+                # Tolerância para nomes muito longos (4+ palavras fortes): Aceita errar 1 palavra
+                if len(strong_words) >= 4 and len(missing) <= 1:
+                    match_found = True
+                    break
+
+        return match_found
 
     def get_title(self):
         file_name = self.item.get("name", "Unknown")
@@ -72,31 +144,27 @@ class Streams:
             hdr_list.append("HDR")   
         if "DV" in name_upper or "DOLBY VISION" in name_upper:
             hdr_list.append("Dolby Vision")
-            
         hdr_display = " ".join(hdr_list) if hdr_list else "SDR"
 
         # Audio
         audio_codec = "Audio"
         if "ATMOS" in name_upper: audio_codec = "Dolby Atmos"
-        elif any(x in name_upper for x in ["DDP", "DD+", "EAC3", "DIGITAL PLUS"]):
+        elif any(x in name_upper for x in ["DDP", "DD+", "EAC3", "DIGITAL PLUS"]): 
             audio_codec = "Dolby Digital Plus"
-        elif any(x in name_upper for x in ["DD", "AC3", "DOLBY DIGITAL"]):
+        elif any(x in name_upper for x in ["DD", "AC3", "DOLBY DIGITAL"]): 
             audio_codec = "Dolby Digital"
         elif "AAC" in name_upper: audio_codec = "AAC"
         elif "DTS" in name_upper: audio_codec = "DTS"
 
         channels = ""
         channel_match = re.search(r'\b(7\.1|5\.1|2\.0)\b', file_name)
-        if not channel_match:
-             channel_match = re.search(r'(7\.1|5\.1|2\.0)', file_name)
-        
-        if channel_match:
-            channels = f" - {channel_match.group(1)}"
+        if not channel_match: channel_match = re.search(r'(7\.1|5\.1|2\.0)', file_name)
+        if channel_match: channels = f" - {channel_match.group(1)}"
         
         audio_final = f"{audio_codec}{channels}"
 
         # Quality
-        quality = "WEB-DL" 
+        quality = "WEB-DL"
         if "BLURAY" in name_upper: quality = "BluRay"
         elif "REMUX" in name_upper: quality = "Remux"
         elif "HDTV" in name_upper: quality = "HDTV"
@@ -104,7 +172,7 @@ class Streams:
 
         # Nome Limpo
         keys = getattr(self.parsed, 'sortkeys', {})
-        title_clean = keys.get("title", "Titulo Desconhecido")
+        title_clean = keys.get("title", "Titulo")
         
         if self.strm_meta.type == "series":
             try:
@@ -117,7 +185,7 @@ class Streams:
             year = keys.get("year", "")
             line3_text = f"{title_clean} {year}".strip()
 
-        # SEU LAYOUT
+        # LAYOUT
         line1 = f"📺 {hdr_display} | 🔊 {audio_final}"
         line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
         line3 = f"📄 {line3_text}"
@@ -172,25 +240,13 @@ class Streams:
         resolution = sortkeys.get("res")
 
         try:
-            res_map = {
-                "hd": 720,
-                "1280x720": 720,
-                "1280x720p": 720,
-                "1920x1080": 1080,
-                "fhd": 1080,
-                "uhd": 2160,
-                "4k": 2160,
-            }
+            res_map = {"hd": 720, "fhd": 1080, "uhd": 2160, "4k": 2160}
             if resolution and isinstance(resolution, str):
                 sort_int = res_map.get(resolution.lower()) 
                 if not sort_int:
                      nums = re.findall(r'\d+', resolution)
                      sort_int = int(nums[0]) if nums else 1
-            else:
-                sort_int = 1
-                
-        except (TypeError, AttributeError, ValueError, ImportError):
-            sort_int = 1
-
-        # Lógica de ranking simples
+            else: sort_int = 1     
+        except: sort_int = 1
+        
         return sort_int
