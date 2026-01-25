@@ -86,7 +86,7 @@ class Streams:
             hdr_list.append("HDR")
             
         if "DV" in name_upper or "DOLBY VISION" in name_upper:
-            hdr_list.append("DV")
+            hdr_list.append("Dolby Vision")
             
         hdr_display = " ".join(hdr_list) if hdr_list else "SDR"
 
