@@ -50,7 +50,7 @@ class Streams:
         file_name = self.item.get("name")
         file_size = hr_size(int(self.item.get("size")))
         drive_id = self.item.get("driveId")
-        drive_name = self.gdrive.drive_names.contents.get(drive_id, "MyDrive")
+        drive_name = self.gdrive.drive_names.contents.get(drive_id, "Helium")
 
         if len(drive_name) > 100 :
             drive_name="TeamDrive Name Error"
@@ -83,7 +83,7 @@ class Streams:
         self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{resolution}"
 
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = self.parsed.get_str(f"L1 GDrive %resolution %quality")
+        self.constructed["name"] = self.parsed.get_str(f"[L1 GDrive] %resolution %quality")
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = self.parsed.sortkeys
 
