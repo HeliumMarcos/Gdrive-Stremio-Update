@@ -20,25 +20,25 @@ class Streams:
         for item in gdrive.results:
             try:
                 self.item = item
-                # Tenta processar o título
                 self.parsed = parse_title(item.get("name"))
                 
-                # Verificação de segurança se o parser falhou totalmente
+                # Se não tem sortkeys, cria um vazio para não quebrar
                 if not hasattr(self.parsed, 'sortkeys'):
-                    continue
+                    self.parsed.sortkeys = {}
 
                 self.construct_stream()
-
-                if self.is_semi_valid_title(self.constructed):
-                    if self.strm_meta.type == "movie":
-                        # AQUI ESTÁ A CORREÇÃO CRÍTICA PARA ENCONTRAR SEUS ARQUIVOS
-                        if self.is_valid_year(self.constructed):
-                            self.results.append(self.constructed)
-                    else:
+                
+                # --- LÓGICA DE FILTRO PERMISSIVA ---
+                # Adicionamos o arquivo primeiro, depois filtramos se for muito absurdo
+                if self.strm_meta.type == "movie":
+                    if self.is_valid_year(self.constructed):
                         self.results.append(self.constructed)
+                else:
+                    # Para séries, o filtro principal é SxxExx que já foi feito na busca
+                    self.results.append(self.constructed)
+                    
             except Exception as e:
-                # Log de erro silencioso para não parar o addon
-                print(f"Erro ao processar item: {e}")
+                print(f"Erro item: {e}")
                 continue
 
         self.results.sort(key=self.best_res, reverse=True)
@@ -48,32 +48,24 @@ class Streams:
         file_year_str = str(sortkeys.get("year", "0"))
         meta_year_str = str(self.strm_meta.year)
 
-        # Se não detectar ano no arquivo (ex: Web-DL sem ano no nome), aceita para garantir
-        if file_year_str == "0":
+        # Se o arquivo não tem ano identificado (comum em Web-DL), ACEITA.
+        if file_year_str == "0" or not file_year_str.isdigit():
             return True
 
         try:
             file_year = int(file_year_str)
             meta_year = int(meta_year_str)
-            
-            # TOLERÂNCIA DE +/- 1 ANO
-            # Aceita se o meta for 2024 e o arquivo for 2025 (comum em lançamentos de fim de ano)
+            # Aceita diferença de 1 ano (Ex: Meta 2024, Arq 2025)
             return abs(file_year - meta_year) <= 1
-        except ValueError:
-            # Se houver erro na conversão (texto estranho), aceita o arquivo por segurança
+        except:
             return True
 
     def is_semi_valid_title(self, item):
-        sortkeys = item.get("sortkeys", {})
-        item_title = sanitize(str(sortkeys.get("title")), "")
-        if item_title:
-            return any(
-                sanitize(title, "") in item_title for title in self.strm_meta.titles
-            )
-        return False
+        # Essa função estava restritiva demais. 
+        # Como já filtramos na busca do GDrive, podemos ser mais lenientes aqui.
+        return True
 
     def get_title(self):
-        # --- 1. Dados Brutos ---
         file_name = self.item.get("name", "Unknown")
         name_upper = file_name.upper()
         
@@ -82,7 +74,7 @@ class Streams:
         except:
             file_size = "0B"
 
-        # --- 2. Detecção Manual de Vídeo (Codec) ---
+        # Codec
         if any(x in name_upper for x in ["HEVC", "X265", "H265", "H.265"]):
             codec = "H.265"
         elif any(x in name_upper for x in ["AVC", "X264", "H264", "H.264"]):
@@ -90,57 +82,43 @@ class Streams:
         else:
             codec = self.parsed.sortkeys.get("codec", "CODEC?")
 
-        # --- 3. Detecção Manual de HDR ---
+        # HDR / DV
         hdr_list = []
-        
-        # Ordem importa: HDR10+ é mais específico que HDR
         if "HDR10+" in name_upper or "HDR+" in name_upper:
             hdr_list.append("HDR+")
         elif "HDR" in name_upper:
             hdr_list.append("HDR")
-            
         if "DV" in name_upper or "DOLBY VISION" in name_upper:
-            hdr_list.append("Dolby Vision")
-            
+            hdr_list.append("Dolby Vision")   
         hdr_display = " ".join(hdr_list) if hdr_list else "SDR"
 
-        # --- 4. Detecção Manual de Áudio e Canais ---
-        audio_codec = "Audio" # Padrão
-        if "ATMOS" in name_upper:
-            audio_codec = "Dolby Atmos"
-        elif any(x in name_upper for x in ["DDP", "DD+", "EAC3", "DIGITAL PLUS"]):
-            audio_codec = "Dolby Digital Plus"
-        elif any(x in name_upper for x in ["DD", "AC3", "DOLBY DIGITAL"]):
-            audio_codec = "Dolby Digital"
-        elif "AAC" in name_upper:
-            audio_codec = "AAC"
-        elif "DTS" in name_upper:
-            audio_codec = "DTS"
+        # Audio
+        audio_codec = "Audio"
+        if "ATMOS" in name_upper: audio_codec = "Dolby Atmos"
+        elif any(x in name_upper for x in ["DDP", "DD+", "EAC3"]): audio_codec = "Dolby Digital Plus"
+        elif any(x in name_upper for x in ["DD", "AC3"]): audio_codec = "Dolby Digital"
+        elif "AAC" in name_upper: audio_codec = "AAC"
+        elif "DTS" in name_upper: audio_codec = "DTS"
 
-        # Detectar Canais (Procura por 5.1, 7.1, 2.0 mesmo colado ex: DDP5.1)
         channels = ""
         channel_match = re.search(r'\b(7\.1|5\.1|2\.0)\b', file_name)
-        if not channel_match:
-             channel_match = re.search(r'(7\.1|5\.1|2\.0)', file_name)
-        
-        if channel_match:
-            channels = f" - {channel_match.group(1)}"
+        if not channel_match: channel_match = re.search(r'(7\.1|5\.1|2\.0)', file_name)
+        if channel_match: channels = f" - {channel_match.group(1)}"
         
         audio_final = f"{audio_codec}{channels}"
 
-        # --- 5. Qualidade ---
-        quality = "WEB-DL" 
+        # Quality
+        quality = "WEB-DL"
         if "BLURAY" in name_upper: quality = "BluRay"
         elif "REMUX" in name_upper: quality = "Remux"
         elif "HDTV" in name_upper: quality = "HDTV"
         elif "WEBRIP" in name_upper: quality = "WebRip"
 
-        # --- 6. Limpeza do Nome ---
+        # Nome Limpo
         keys = getattr(self.parsed, 'sortkeys', {})
-        title_clean = keys.get("title", "Titulo Desconhecido")
+        title_clean = keys.get("title", "Titulo")
         
         if self.strm_meta.type == "series":
-            # Formato: Nome da Série - S01E01
             try:
                 s = int(keys.get("season", keys.get("se", 0)))
                 e = int(keys.get("episode", keys.get("ep", 0)))
@@ -148,18 +126,12 @@ class Streams:
             except:
                 line3_text = title_clean
         else:
-            # Formato: Nome do Filme (2025)
             year = keys.get("year", "")
             line3_text = f"{title_clean} {year}".strip()
 
-        # --- MONTAGEM FINAL (SEU LAYOUT) ---
-        # Linha 1: 📺 HDR+ | 🔊 Dolby Digital Plus - 5.1
+        # SEU LAYOUT
         line1 = f"📺 {hdr_display} | 🔊 {audio_final}"
-        
-        # Linha 2: 🎥 WEB-DL | 🎞️ H.265 | 💾 15.01GiB
         line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
-        
-        # Linha 3: 📄 Afterburn 2025
         line3 = f"📄 {line3_text}"
 
         return f"{line1}\n{line2}\n{line3}"
@@ -191,22 +163,15 @@ class Streams:
         
         keys = getattr(self.parsed, 'sortkeys', {})
         res_raw = str(keys.get("res", ""))
-        
         self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{res_raw}"
 
-        # Mapeamento de Resolução para o Nome
         res_lower = res_raw.lower()
-        if "2160" in res_lower:
-            res_display = "2160p (4k)"
-        elif "1080" in res_lower:
-            res_display = "1080p (Full HD)"
-        elif "720" in res_lower:
-            res_display = "720p (HD)"
-        else:
-            res_display = res_raw or "SD"
+        if "2160" in res_lower: res_display = "2160p (4k)"
+        elif "1080" in res_lower: res_display = "1080p (Full HD)"
+        elif "720" in res_lower: res_display = "720p (HD)"
+        else: res_display = res_raw or "SD"
 
         self.constructed["url"] = self.get_url()
-        # SEU LAYOUT DE NOME COM A BANDEIRA
         self.constructed["name"] = f"[L1 GDrive] {res_display} | 🇧🇷"
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = keys
@@ -219,58 +184,19 @@ class Streams:
         resolution = sortkeys.get("res")
 
         try:
-            res_map = {
-                "hd": 720,
-                "1280x720": 720,
-                "1280x720p": 720,
-                "1920x1080": 1080,
-                "fhd": 1080,
-                "uhd": 2160,
-                "4k": 2160,
-            }
+            res_map = {"hd": 720, "fhd": 1080, "uhd": 2160, "4k": 2160}
             if resolution and isinstance(resolution, str):
                 sort_int = res_map.get(resolution.lower()) 
                 if not sort_int:
                      nums = re.findall(r'\d+', resolution)
                      sort_int = int(nums[0]) if nums else 1
-            else:
-                sort_int = 1
-                
-        except (TypeError, AttributeError, ValueError, ImportError):
-            sort_int = 1
+            else: sort_int = 1     
+        except: sort_int = 1
 
-        ptn_name = sanitize(sortkeys.get("title", ""), "")
-        
-        name_match = False
-        if self.strm_meta.titles:
-            name_match = any(
-                ptn_name.endswith(sanitize(title, "")) for title in self.strm_meta.titles
-            )
-        
-        if not name_match:
-            sort_int -= MAX_RES
-
+        # Lógica simplificada de ranking
+        # Se for série e não tiver temp/ep, joga pro fim
         if self.strm_meta.type == "series":
-            listify = lambda x: [x] if isinstance(x, int) or not x else x
-
-            se_list = listify(sortkeys.get("se"))
-            ep_list = listify(sortkeys.get("ep"))
-            
-            try:
-                meta_se = int(self.strm_meta.se)
-                meta_ep = int(self.strm_meta.ep)
-                
-                invalid_se = True
-                if se_list:
-                     invalid_se = meta_se not in [int(x) for x in se_list if str(x).isdigit()]
-                
-                invalid_ep = True
-                if ep_list:
-                     invalid_ep = meta_ep not in [int(x) for x in ep_list if str(x).isdigit()]
-
-                if invalid_se or invalid_ep:
-                    sort_int -= MAX_RES * 2
-            except:
-                sort_int -= MAX_RES * 2
+             if not sortkeys.get("se") or not sortkeys.get("ep"):
+                 sort_int -= MAX_RES * 2
 
         return sort_int
