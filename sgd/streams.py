@@ -22,48 +22,22 @@ class Streams:
                 self.item = item
                 self.parsed = parse_title(item.get("name"))
                 
-                # Se não tem sortkeys, cria um vazio para não quebrar
+                # Garante que sortkeys existe mesmo se o parser falhar
                 if not hasattr(self.parsed, 'sortkeys'):
                     self.parsed.sortkeys = {}
 
                 self.construct_stream()
                 
-                # --- LÓGICA DE FILTRO PERMISSIVA ---
-                # Adicionamos o arquivo primeiro, depois filtramos se for muito absurdo
-                if self.strm_meta.type == "movie":
-                    if self.is_valid_year(self.constructed):
-                        self.results.append(self.constructed)
-                else:
-                    # Para séries, o filtro principal é SxxExx que já foi feito na busca
-                    self.results.append(self.constructed)
+                # --- MUDANÇA: Aceita TUDO que veio da busca ---
+                # A filtragem rígida estava escondendo seus arquivos.
+                # Agora confiamos que a busca do Google já filtrou o nome certo.
+                self.results.append(self.constructed)
                     
             except Exception as e:
-                print(f"Erro item: {e}")
+                print(f"Erro processando stream: {e}")
                 continue
 
         self.results.sort(key=self.best_res, reverse=True)
-
-    def is_valid_year(self, movie):
-        sortkeys = movie.get("sortkeys", {})
-        file_year_str = str(sortkeys.get("year", "0"))
-        meta_year_str = str(self.strm_meta.year)
-
-        # Se o arquivo não tem ano identificado (comum em Web-DL), ACEITA.
-        if file_year_str == "0" or not file_year_str.isdigit():
-            return True
-
-        try:
-            file_year = int(file_year_str)
-            meta_year = int(meta_year_str)
-            # Aceita diferença de 1 ano (Ex: Meta 2024, Arq 2025)
-            return abs(file_year - meta_year) <= 1
-        except:
-            return True
-
-    def is_semi_valid_title(self, item):
-        # Essa função estava restritiva demais. 
-        # Como já filtramos na busca do GDrive, podemos ser mais lenientes aqui.
-        return True
 
     def get_title(self):
         file_name = self.item.get("name", "Unknown")
@@ -129,7 +103,7 @@ class Streams:
             year = keys.get("year", "")
             line3_text = f"{title_clean} {year}".strip()
 
-        # SEU LAYOUT
+        # SEU LAYOUT VISUAL
         line1 = f"📺 {hdr_display} | 🔊 {audio_final}"
         line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
         line3 = f"📄 {line3_text}"
@@ -178,6 +152,12 @@ class Streams:
 
         return self.constructed
 
+    def is_valid_year(self, movie):
+        return True # Sempre aceita, deixa o usuário decidir
+
+    def is_semi_valid_title(self, item):
+        return True # Sempre aceita
+
     def best_res(self, item):
         MAX_RES = 2160
         sortkeys = item.pop("sortkeys", {})
@@ -192,11 +172,5 @@ class Streams:
                      sort_int = int(nums[0]) if nums else 1
             else: sort_int = 1     
         except: sort_int = 1
-
-        # Lógica simplificada de ranking
-        # Se for série e não tiver temp/ep, joga pro fim
-        if self.strm_meta.type == "series":
-             if not sortkeys.get("se") or not sortkeys.get("ep"):
-                 sort_int -= MAX_RES * 2
 
         return sort_int
