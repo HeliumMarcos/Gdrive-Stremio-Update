@@ -1,5 +1,4 @@
 import requests
-import re
 from datetime import datetime, timedelta
 from sgd.cache import Pickle, Json
 from googleapiclient.discovery import build
@@ -19,81 +18,87 @@ class GoogleDrive:
     @staticmethod
     def qgen(string, chain="and", splitter=" ", method=None):
         out = ""
+
         get_method = lambda _: method
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        # --- CORREÇÃO DEFINITIVA ---
-        # Extrai APENAS letras e números. Ignora ' : - . e tudo mais.
-        # Ex: "The Carpenter's Son" vira ["The", "Carpenter", "s", "Son"]
-        words = re.findall(r'\w+', string)
+        # --- CORREÇÃO SEGURA ---
+        # 1. Troca pontos por espaços (para achar releases scene The.Movie...)
+        # 2. Remove apóstrofos (Carpenter's -> Carpenters) para não quebrar a sintaxe
+        cleaned_string = string.replace(".", " ").replace("'", "")
         
-        # Filtra palavras inúteis (uma letra só, ou artigos comuns que sujam a busca)
-        valid_words = [w for w in words if len(w) > 1 and w.lower() not in ('the', 'and', 'of')]
-        
-        if not valid_words: # Se não sobrou nada, usa o original
-            valid_words = words
+        # Remove espaços duplos
+        cleaned_string = " ".join(cleaned_string.split())
 
-        for word in valid_words:
-            if out: out += f" {chain} "
-            out += f"{get_method(word)} contains '{word}'"
+        for word in cleaned_string.split(splitter):
+            if not word: continue
             
+            if out:
+                out += f" {chain} "
+            # Busca simples e original que funcionava
+            out += f"{get_method(word)} contains '{word}'"
         return out
 
     def get_query(self, sm):
         out = []
-        
-        # Pega o título principal (sem apóstrofos ou caracteres estranhos)
-        for title in sm.titles:
-            # Busca Série
-            if sm.stream_type == "series":
-                se = str(sm.se).zfill(2) # 01
-                ep = str(sm.ep).zfill(2) # 04
-                se_int = int(sm.se)      # 1
-                ep_int = int(sm.ep)      # 4
 
-                # Variações de busca S01E01
-                episode_queries = [
-                    f"S{se}E{ep}",       # S01E01 (Padrão scene)
-                    f"S{se} E{ep}",      # S01 E01
-                    f"{se_int}x{ep_int}",# 1x4
-                    f"{se}.{ep}"         # 01.04
-                ]
+        if sm.stream_type == "series":
+            # Adicionei SxxExx junto, pois muitos arquivos usam esse formato
+            se = str(sm.se).zfill(2)
+            ep = str(sm.ep).zfill(2)
+            
+            seep_q = self.qgen(
+                f"S{sm.se}E{sm.ep}, " # Formato S01E01 junto (importante)
+                f"s{sm.se} e{sm.ep}, "
+                f"s{int(sm.se)} e{int(sm.ep)}, "
+                f"season {int(sm.se)} episode {int(sm.ep)}, "
+                f'"{int(sm.se)} x {int(sm.ep)}", '
+                f'"{int(sm.se)} x {sm.ep}"',
+                chain="or",
+                splitter=", ",
+                method="fullText",
+            )
+            for title in sm.titles:
+                # Remove apóstrofos do título antes de mandar buscar
+                clean_t = title.replace("'", "")
                 
-                # Gera a query para cada variação de episódio
-                ep_string = ""
-                for i, eq in enumerate(episode_queries):
-                    prefix = " or " if i > 0 else ""
-                    ep_string += f"{prefix}name contains '{eq}'"
-
-                # Query Final: (NomeLimpo) AND (VariaçõesEpisodio)
-                title_query = self.qgen(title)
-                if title_query:
-                    out.append(f"({title_query}) and ({ep_string})")
-
-            # Busca Filme
-            else:
-                # Busca apenas pelo NOME. 
-                # Removemos o ANO da busca do Google para evitar falhas se o ano estiver errado.
-                q = self.qgen(title)
-                if q:
-                    out.append(q)
+                if len(clean_t.split()) == 1:
+                    out.append(
+                        f"fullText contains '\"{clean_t}\"' and "
+                        f"name contains '{clean_t}' and ({seep_q})"
+                    )
+                else:
+                    out.append(f"{self.qgen(clean_t)} and ({seep_q})")
+        else:
+            for title in sm.titles:
+                # Remove apóstrofos do título
+                clean_t = title.replace("'", "")
                 
+                if len(clean_t.split()) == 1:
+                    out.append(
+                        f"fullText contains '\"{clean_t}\"' and "
+                        f"name contains '{clean_t}'"
+                    )
+                else:
+                    # Removi a obrigatoriedade do ANO aqui. 
+                    # Deixa o Python filtrar o ano depois, para achar 2024/2025.
+                    out.append(self.qgen(f"{clean_t}"))
         return out
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
-            if exception:
-                print(f"Erro GDrive: {exception}")
             if response:
                 output.extend(response.get("files", []))
+            # Se der erro, apenas ignora e segue (evita crash)
+            if exception:
+                print(f"Aviso GDrive: {exception}")
 
         output = []
         if self.query:
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
             for q in self.query:
-                # print(f"Query: {q}") # Debug
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -105,26 +110,31 @@ class GoogleDrive:
                 batch.add(batch_inst, callback=callb)
             try:
                 batch.execute()
-            except Exception as e:
-                print(f"Erro Batch: {e}")
+            except:
+                pass # Se falhar a conexão, não quebra o addon
             return output
         return output
 
     def get_drive_names(self):
         def callb(request_id, response, exception):
             if response:
-                self.drive_names.contents[response.get("id")] = response.get("name")
+                drive_id = response.get("id")
+                drive_name = response.get("name")
+                self.drive_names.contents[drive_id] = drive_name
 
         batch = self.drive_instance.new_batch_http_request()
         drives = self.drive_instance.drives()
         
         drive_ids = set(item.get("driveId") for item in self.results if item.get("driveId"))
+        
         if not drive_ids: return {}
 
         for drive_id in drive_ids:
-            if not self.drive_names.contents.get(drive_id):
+            cached_drive_name = self.drive_names.contents.get(drive_id)
+            if not cached_drive_name:
                 self.drive_names.contents[drive_id] = None
-                batch.add(drives.get(driveId=drive_id, fields="name, id"), callback=callb)
+                batch_inst = drives.get(driveId=drive_id, fields="name, id")
+                batch.add(batch_inst, callback=callb)
 
         try:
             batch.execute()
@@ -137,13 +147,22 @@ class GoogleDrive:
         self.results = []
         self.query = self.get_query(stream_meta)
 
-        response = self.file_list("id, name, size, driveId, md5Checksum, createdTime")
-        
+        response = self.file_list("id, name, size, driveId, md5Checksum")
+        self.len_response = 0
+
         if response:
+            self.len_response = len(response)
             uids = set()
+
             def check_dupe(item):
-                uid = item.get("driveId", "MyD") + item.get("md5Checksum", item.get("id"))
-                if uid in uids: return False
+                driveId = item.get("driveId", "MyDrive")
+                md5Checksum = item.get("md5Checksum")
+                # Se não tiver checksum, usa o ID
+                uid = driveId + (md5Checksum if md5Checksum else item.get("id"))
+
+                if uid in uids:
+                    return False
+
                 uids.add(uid)
                 return True
 
@@ -158,9 +177,10 @@ class GoogleDrive:
 
     def get_acc_token(self):
         if not self.acc_token.contents: self.acc_token.contents = {}
-        expires = self.acc_token.contents.get("expires_in")
-        is_expired = True
         
+        # Lógica de expiração segura
+        is_expired = True
+        expires = self.acc_token.contents.get("expires_in")
         if expires:
             try:
                 if isinstance(expires, str): expires = datetime.fromisoformat(expires)
@@ -168,17 +188,20 @@ class GoogleDrive:
             except: pass
 
         if is_expired:
+            body = {
+                "client_id": self.token["client_id"],
+                "client_secret": self.token["client_secret"],
+                "refresh_token": self.token["refresh_token"],
+                "grant_type": "refresh_token",
+            }
+            api_url = "https://www.googleapis.com/oauth2/v4/token"
             try:
-                body = {
-                    "client_id": self.token["client_id"],
-                    "client_secret": self.token["client_secret"],
-                    "refresh_token": self.token["refresh_token"],
-                    "grant_type": "refresh_token",
-                }
-                res = requests.post("https://www.googleapis.com/oauth2/v4/token", json=body).json()
-                if "access_token" in res:
-                    res["expires_in"] = timedelta(seconds=res["expires_in"]) + datetime.now()
-                    self.acc_token.contents = res
+                oauth_resp = requests.post(api_url, json=body).json()
+                if "access_token" in oauth_resp:
+                    oauth_resp["expires_in"] = (
+                        timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
+                    )
+                    self.acc_token.contents = oauth_resp
                     self.acc_token.save()
             except: pass
 
