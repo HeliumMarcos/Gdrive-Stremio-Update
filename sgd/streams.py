@@ -142,11 +142,11 @@ class Streams:
             line3_text = f"{title_clean} {year}".strip()
 
         # --- MONTAGEM FINAL ---
-        # Linha 1: 📺 HDR+ | 🔊 Dolby Digital Plus - 5.1 | 💾 15.01GiB
-        line1 = f"📺 {hdr_display} | 🔊 {audio_final} | 💾 {file_size}"
+        # Linha 1: 📺 HDR+ | 🔊 Dolby Digital Plus - 5.1
+        line1 = f"📺 {hdr_display} | 🔊 {audio_final}"
         
-        # Linha 2: 🎥 WEB-DL | 🎞️ H.265 | 🇧🇷
-        line2 = f"🎥 {quality} | 🎞️ {codec} | 🇧🇷"
+        # Linha 2: 🎥 WEB-DL | 🎞️ H.265 | 💾 15.01GiB
+        line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
         
         # Linha 3: 📄 Afterburn 2025
         line3 = f"📄 {line3_text}"
@@ -195,7 +195,7 @@ class Streams:
             res_display = res_raw or "SD"
 
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = f"[L1 GDrive] {res_display}"
+        self.constructed["name"] = f"[L1 GDrive] {res_display} | 🇧🇷"
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = keys
 
