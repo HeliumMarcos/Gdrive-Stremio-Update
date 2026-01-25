@@ -23,14 +23,29 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        for word in string.split(splitter):
+        # Remove espaços duplos causados por limpeza anterior
+        cleaned_string = " ".join(string.split())
+
+        for word in cleaned_string.split(splitter):
+            if not word: 
+                continue
+                
             if out:
                 out += f" {chain} "
-            out += f"{get_method(word)} contains '{word}'"
+            
+            # --- CORREÇÃO PRINCIPAL ---
+            # Escapa o apóstrofo (Carpenter's -> Carpenter\'s) para não quebrar a query
+            word_escaped = word.replace("'", "\\'")
+            
+            out += f"{get_method(word)} contains '{word_escaped}'"
         return out
 
     def get_query(self, sm):
         out = []
+        
+        # Função auxiliar para limpar títulos (remove : e - que atrapalham a busca)
+        def clean_title(t):
+            return t.replace(":", " ").replace("-", " ").strip()
 
         if sm.stream_type == "series":
             seep_q = self.qgen(
@@ -44,35 +59,42 @@ class GoogleDrive:
                 method="fullText",
             )
             for title in sm.titles:
-                if len(title.split()) == 1:
+                clean_t = clean_title(title)
+                if len(clean_t.split()) == 1:
                     out.append(
-                        f"fullText contains '\"{title}\"' and "
-                        f"name contains '{title}' and ({seep_q})"
+                        f"fullText contains '\"{clean_t}\"' and "
+                        f"name contains '{clean_t.replace("'", "\\'")}' and ({seep_q})"
                     )
                 else:
-                    out.append(f"{self.qgen(title)} and ({seep_q})")
+                    out.append(f"{self.qgen(clean_t)} and ({seep_q})")
         else:
             for title in sm.titles:
-                if len(title.split()) == 1:
+                clean_t = clean_title(title)
+                # Verifica palavras chave únicas
+                if len(clean_t.split()) == 1:
                     out.append(
-                        f"fullText contains '\"{title}\"' and "
-                        f"name contains '{title}' and "
+                        f"fullText contains '\"{clean_t}\"' and "
+                        f"name contains '{clean_t.replace("'", "\\'")}' and "
                         f"fullText contains '\"{sm.year}\"'"
                     )
                 else:
-                    out.append(self.qgen(f"{title} {sm.year}"))
+                    # Busca padrão: Título + Ano
+                    out.append(self.qgen(f"{clean_t} {sm.year}"))
         return out
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
+            if exception:
+                print(f"Erro na busca do GDrive: {exception}")
             if response:
-                output.extend(response.get("files"))
+                output.extend(response.get("files", []))
 
+        output = []
         if self.query:
-            output = []
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
             for q in self.query:
+                # print(f"Query enviada: {q}") # Descomente para debug se precisar
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -82,8 +104,13 @@ class GoogleDrive:
                     corpora="allDrives",
                 )
                 batch.add(batch_inst, callback=callb)
-            batch.execute()
+            try:
+                batch.execute()
+            except Exception as e:
+                print(f"Erro ao executar batch: {e}")
+                
             return output
+        return output
 
     def get_drive_names(self):
         def callb(request_id, response, exception):
@@ -94,7 +121,12 @@ class GoogleDrive:
 
         batch = self.drive_instance.new_batch_http_request()
         drives = self.drive_instance.drives()
+        
+        # Proteção caso self.results esteja vazio
         drive_ids = set(item["driveId"] for item in self.results if item.get("driveId"))
+
+        if not drive_ids:
+            return {}
 
         for drive_id in drive_ids:
             cached_drive_name = self.drive_names.contents.get(drive_id)
@@ -103,7 +135,11 @@ class GoogleDrive:
                 batch_inst = drives.get(driveId=drive_id, fields="name, id")
                 batch.add(batch_inst, callback=callb)
 
-        batch.execute()
+        try:
+            batch.execute()
+        except Exception as e:
+            print(f"Erro ao buscar nomes dos drives: {e}")
+            
         self.drive_names.save()
         return self.drive_names.contents
 
@@ -121,6 +157,10 @@ class GoogleDrive:
             def check_dupe(item):
                 driveId = item.get("driveId", "MyDrive")
                 md5Checksum = item.get("md5Checksum")
+                # Fallback se não tiver checksum
+                if not md5Checksum:
+                    return True
+                    
                 uid = driveId + md5Checksum
 
                 if uid in uids:
@@ -131,7 +171,7 @@ class GoogleDrive:
 
             self.results = sorted(
                 filter(check_dupe, response),
-                key=lambda item: int(item.get("size")),
+                key=lambda item: int(item.get("size", 0)),
                 reverse=True,
             )
 
@@ -139,11 +179,24 @@ class GoogleDrive:
         return self.results
 
     def get_acc_token(self):
-        token_exipred = (
-            self.acc_token.contents.get("expires_in", datetime.now()) <= datetime.now()
-        )
+        # Verifica se contents existe antes de acessar
+        if not self.acc_token.contents:
+             self.acc_token.contents = {}
 
-        if token_exipred or not self.acc_token.contents:
+        expires_in = self.acc_token.contents.get("expires_in")
+        
+        # Lógica de expiração segura
+        token_expired = True
+        if expires_in:
+            try:
+                # Se for string, tenta converter (caso venha de um json antigo)
+                if isinstance(expires_in, str):
+                    expires_in = datetime.fromisoformat(expires_in)
+                token_expired = expires_in <= datetime.now()
+            except:
+                token_expired = True
+        
+        if token_expired:
             body = {
                 "client_id": self.token["client_id"],
                 "client_secret": self.token["client_secret"],
@@ -151,15 +204,25 @@ class GoogleDrive:
                 "grant_type": "refresh_token",
             }
             api_url = "https://www.googleapis.com/oauth2/v4/token"
-            oauth_resp = requests.post(api_url, json=body).json()
-            oauth_resp["expires_in"] = (
-                timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
-            )
+            try:
+                oauth_resp = requests.post(api_url, json=body).json()
+                
+                # Se der erro de autenticação, retorna None ou lança erro
+                if "error" in oauth_resp:
+                    print(f"Erro ao renovar token: {oauth_resp}")
+                    return None
 
-            self.acc_token.contents = oauth_resp
-            self.acc_token.save()
+                oauth_resp["expires_in"] = (
+                    timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
+                )
 
-        expiry = self.acc_token.contents["expires_in"]
+                self.acc_token.contents = oauth_resp
+                self.acc_token.save()
+            except Exception as e:
+                print(f"Falha na requisição de token: {e}")
+                return self.acc_token.contents.get("access_token")
+
+        expiry = self.acc_token.contents.get("expires_in")
         acc_token = self.acc_token.contents.get("access_token")
-        print("Fetched access_token, will expire at", expiry)
+        # print("Access token válido até", expiry)
         return acc_token
