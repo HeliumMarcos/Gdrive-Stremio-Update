@@ -23,43 +23,55 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        # --- MUDANÇA CRÍTICA ---
-        # Substitui apóstrofos e pontuação por ESPAÇO.
-        # Antes: "Carpenter's" virava "Carpenters" (falhava).
-        # Agora: "Carpenter's" vira "Carpenter s" (Google acha "Carpenter" no nome do arquivo).
+        # --- LISTA DE PALAVRAS PROIBIDAS (STOP WORDS) ---
+        # Essas palavras poluem a busca e estouram o limite de resultados do Google
+        STOP_WORDS = {
+            "the", "of", "and", "a", "an", "to", "in", "for", "on", "at", 
+            "by", "with", "from", "as", "is", "it"
+        }
+
+        # Limpeza pesada: Remove pontuação e deixa apenas espaços
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
-        
-        # Remove espaços duplos e extras
         cleaned_string = " ".join(cleaned_string.split())
 
+        valid_words = []
         for word in cleaned_string.split(splitter):
             if not word: continue
             
-            # Ignora letras soltas muito curtas que não sejam números (ex: o 's' do Carpenter's ou 'a')
-            # Isso limpa a busca para focar nas palavras chaves fortes.
+            # 1. Remove palavras muito curtas (exceto números, ex: "2")
             if len(word) < 2 and not word.isdigit():
                 continue
+            
+            # 2. Remove Stop Words (The, Of, etc)
+            if word.lower() in STOP_WORDS:
+                continue
+                
+            valid_words.append(word)
 
+        # Se depois da limpeza não sobrou nada (ex: filme chamado "The"), 
+        # somos obrigados a usar o original.
+        if not valid_words:
+            valid_words = cleaned_string.split(splitter)
+
+        for word in valid_words:
             if out:
                 out += f" {chain} "
-            
             out += f"{get_method(word)} contains '{word}'"
+            
         return out
 
     def get_query(self, sm):
         out = []
         
-        # DEBUG: Mostra o que chegou do Stremio
-        print(f"--- DEBUG BUSCA ---")
-        print(f"TITULO ORIGINAL (STREMIO): {sm.titles}")
-        print(f"ANO: {sm.year}")
+        # DEBUG: Para você confirmar que o 'the' sumiu
+        print(f"--- DEBUG ---")
+        print(f"TITULO STREMIO: {sm.titles}")
 
         if sm.stream_type == "series":
             # Busca de Séries
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
             
-            # Gera busca de episódios S01E01, 1x01, etc
             seep_q = self.qgen(
                 f"S{sm.se}E{sm.ep}, "
                 f"s{sm.se} e{sm.ep}, "
@@ -72,13 +84,11 @@ class GoogleDrive:
                 method="fullText",
             )
             for title in sm.titles:
-                # Limpa o título para query
                 query_part = self.qgen(title)
-                
                 if not query_part: continue
 
                 if len(title.split()) == 1:
-                    # Título de uma palavra só
+                    # Título de uma palavra só (ex: "Severance")
                     clean_t = title.replace("'", " ")
                     out.append(
                         f"fullText contains '\"{clean_t}\"' and "
@@ -89,8 +99,6 @@ class GoogleDrive:
         else:
             # Busca de Filmes
             for title in sm.titles:
-                # Aqui removemos a obrigatoriedade do ano na busca do Google
-                # para evitar que ele esconda arquivos com ano divergente.
                 q = self.qgen(title)
                 if q:
                     out.append(q)
@@ -102,7 +110,7 @@ class GoogleDrive:
             if response:
                 output.extend(response.get("files", []))
             if exception:
-                print(f"Erro GDrive API: {exception}")
+                print(f"Erro GDrive: {exception}")
 
         output = []
         if self.query:
@@ -110,8 +118,7 @@ class GoogleDrive:
             batch = self.drive_instance.new_batch_http_request()
             
             for q in self.query:
-                # DEBUG: Mostra a query exata enviada ao Google
-                print(f"BUSCA ENVIADA: {q}")
+                print(f"BUSCA LIMPA: {q}") # Vai mostrar sem o 'the' agora
                 
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
@@ -125,7 +132,7 @@ class GoogleDrive:
             try:
                 batch.execute()
             except Exception as e:
-                print(f"Erro fatal no Batch: {e}")
+                print(f"Erro Batch: {e}")
                 
             return output
         return output
@@ -133,9 +140,7 @@ class GoogleDrive:
     def get_drive_names(self):
         def callb(request_id, response, exception):
             if response:
-                drive_id = response.get("id")
-                drive_name = response.get("name")
-                self.drive_names.contents[drive_id] = drive_name
+                self.drive_names.contents[response.get("id")] = response.get("name")
 
         batch = self.drive_instance.new_batch_http_request()
         drives = self.drive_instance.drives()
@@ -145,11 +150,9 @@ class GoogleDrive:
         if not drive_ids: return {}
 
         for drive_id in drive_ids:
-            cached_drive_name = self.drive_names.contents.get(drive_id)
-            if not cached_drive_name:
+            if not self.drive_names.contents.get(drive_id):
                 self.drive_names.contents[drive_id] = None
-                batch_inst = drives.get(driveId=drive_id, fields="name, id")
-                batch.add(batch_inst, callback=callb)
+                batch.add(drives.get(driveId=drive_id, fields="name, id"), callback=callb)
 
         try:
             batch.execute()
@@ -174,9 +177,7 @@ class GoogleDrive:
                 md5Checksum = item.get("md5Checksum")
                 uid = driveId + (md5Checksum if md5Checksum else item.get("id"))
 
-                if uid in uids:
-                    return False
-
+                if uid in uids: return False
                 uids.add(uid)
                 return True
 
@@ -191,7 +192,6 @@ class GoogleDrive:
 
     def get_acc_token(self):
         if not self.acc_token.contents: self.acc_token.contents = {}
-        
         expires = self.acc_token.contents.get("expires_in")
         is_expired = True
         
@@ -212,9 +212,7 @@ class GoogleDrive:
             try:
                 oauth_resp = requests.post(api_url, json=body).json()
                 if "access_token" in oauth_resp:
-                    oauth_resp["expires_in"] = (
-                        timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
-                    )
+                    oauth_resp["expires_in"] = timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
                     self.acc_token.contents = oauth_resp
                     self.acc_token.save()
             except: pass
