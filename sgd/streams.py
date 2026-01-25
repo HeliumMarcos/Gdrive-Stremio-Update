@@ -75,19 +75,37 @@ class Streams:
         }
         return f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&file_name={file_name}"
 
-    def construct_stream(self):
+        def construct_stream(self):
         self.constructed = {}
         self.constructed["behaviorHints"] = {}
         self.constructed["behaviorHints"]["notWebReady"] = True
-        resolution = self.parsed.sortkeys.get("res", "1")
+        resolution = self.parsed.sortkeys.get("res", "").lower()
         self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{resolution}"
 
+        # --- LÓGICA DE TRADUÇÃO DE RESOLUÇÃO ---
+        if "2160" in resolution:
+            res_display = "4k"
+        elif "1080" in resolution:
+            res_display = "Full HD"
+        elif "720" in resolution:
+            res_display = "HD"
+        else:
+            res_display = resolution or "SD" # Fallback para resoluções menores ou não identificadas
+        
+        # Detecção de HDR e DV (Dolby Vision)
+        hdr = " - HDR" if self.parsed.get("hdr") else ""
+        dv = " - DV" if self.parsed.get("dv") or "DV" in self.item.get("name").upper() else ""
+
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = self.parsed.get_str(f"[L1 GDrive] %resolution %quality")
+        # Montagem do nome final: [L1 GDrive] Full HD - HDR - DV
+        self.constructed["name"] = f"[L1 GDrive] {res_display}{hdr}{dv}"
+        # ---------------------------------------
+
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = self.parsed.sortkeys
 
         return self.constructed
+
 
     def best_res(self, item):
         MAX_RES = 2160
