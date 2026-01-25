@@ -23,37 +23,44 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        # --- LISTA DE PALAVRAS PROIBIDAS (STOP WORDS) ---
-        # Essas palavras poluem a busca e estouram o limite de resultados do Google
+        # --- LISTA DE PALAVRAS COMUNS (STOP WORDS) ---
         STOP_WORDS = {
             "the", "of", "and", "a", "an", "to", "in", "for", "on", "at", 
             "by", "with", "from", "as", "is", "it"
         }
 
-        # Limpeza pesada: Remove pontuação e deixa apenas espaços
+        # 1. Limpeza básica: remove pontuação e apóstrofos
+        # "The Carpenter's Son" -> "The Carpenter s Son"
+        # "The Rip" -> "The Rip"
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         cleaned_string = " ".join(cleaned_string.split())
 
-        valid_words = []
-        for word in cleaned_string.split(splitter):
-            if not word: continue
-            
-            # 1. Remove palavras muito curtas (exceto números, ex: "2")
-            if len(word) < 2 and not word.isdigit():
-                continue
-            
-            # 2. Remove Stop Words (The, Of, etc)
-            if word.lower() in STOP_WORDS:
-                continue
-                
-            valid_words.append(word)
+        all_words = []
+        # Filtra palavras inúteis menores que 2 letras (mas mantém números)
+        for w in cleaned_string.split(splitter):
+            if w and (len(w) > 1 or w.isdigit()):
+                all_words.append(w)
 
-        # Se depois da limpeza não sobrou nada (ex: filme chamado "The"), 
-        # somos obrigados a usar o original.
-        if not valid_words:
-            valid_words = cleaned_string.split(splitter)
+        # 2. Identifica palavras "Fortes" (que não são Stop Words)
+        strong_words = [w for w in all_words if w.lower() not in STOP_WORDS]
 
-        for word in valid_words:
+        # --- LÓGICA INTELIGENTE (AQUI ESTÁ A MÁGICA) ---
+        # Se o título tiver POUCAS palavras fortes (1 ou menos), precisamos das Stop Words!
+        # Exemplo: "The Rip" -> Strong: ["Rip"]. Count: 1. -> Mantém "The" e "Rip".
+        # Exemplo: "The Carpenter's Son" -> Strong: ["Carpenter", "Son"]. Count: 2. -> Remove "The".
+        
+        if len(strong_words) <= 1:
+            # Título curto/genérico: Usa TUDO para ser específico (ex: "The Rip")
+            final_words = all_words
+        else:
+            # Título longo: Usa só as fortes para garantir match (ex: "Carpenter Son")
+            final_words = strong_words
+
+        # Se por acaso a lista ficar vazia (ex: filme chamado "The"), usa o original
+        if not final_words:
+            final_words = all_words
+
+        for word in final_words:
             if out:
                 out += f" {chain} "
             out += f"{get_method(word)} contains '{word}'"
@@ -63,9 +70,9 @@ class GoogleDrive:
     def get_query(self, sm):
         out = []
         
-        # DEBUG: Para você confirmar que o 'the' sumiu
+        # DEBUG
         print(f"--- DEBUG ---")
-        print(f"TITULO STREMIO: {sm.titles}")
+        print(f"TITULO: {sm.titles}")
 
         if sm.stream_type == "series":
             # Busca de Séries
@@ -88,7 +95,6 @@ class GoogleDrive:
                 if not query_part: continue
 
                 if len(title.split()) == 1:
-                    # Título de uma palavra só (ex: "Severance")
                     clean_t = title.replace("'", " ")
                     out.append(
                         f"fullText contains '\"{clean_t}\"' and "
@@ -118,7 +124,8 @@ class GoogleDrive:
             batch = self.drive_instance.new_batch_http_request()
             
             for q in self.query:
-                print(f"BUSCA LIMPA: {q}") # Vai mostrar sem o 'the' agora
+                # O log vai te mostrar a diferença agora
+                print(f"BUSCA SMART: {q}") 
                 
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
@@ -152,7 +159,7 @@ class GoogleDrive:
         for drive_id in drive_ids:
             if not self.drive_names.contents.get(drive_id):
                 self.drive_names.contents[drive_id] = None
-                batch.add(drives.get(driveId=drive_id, fields="name, id"), callback=callb)
+                batch_inst = drives.get(driveId=drive_id, fields="name, id"), callback=callb)
 
         try:
             batch.execute()
