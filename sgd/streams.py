@@ -83,7 +83,7 @@ class Streams:
         self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{resolution}"
 
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = self.parsed.get_str(f"GDrive %resolution %quality")
+        self.constructed["name"] = self.parsed.get_str(f"L1 GDrive %resolution %quality")
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = self.parsed.sortkeys
 
