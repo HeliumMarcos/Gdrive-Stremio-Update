@@ -58,71 +58,79 @@ class Streams:
 
     def is_semi_valid_title(self, item):
         """
-        Lógica Blindada:
-        0. Bypass: Se tiver o ID do IMDb no nome, aprova direto.
-        1. Títulos Curtos: Exige frase exata ("The Rip" deve aparecer junto).
-        2. Títulos Longos: Exige presença das palavras chave (ordem flexível).
+        Lógica Blindada com Filtro Anti-Spinoff
         """
-        file_name_raw = item.get("sortkeys", {}).get("title", "") or self.item.get("name", "")
+        file_name_raw = self.item.get("name", "")
         
         # --- 0. BYPASS DA ID DO IMDB ---
         imdb_id = getattr(self.strm_meta, "id", None)
         if imdb_id and imdb_id.lower() in file_name_raw.lower():
             return True
 
-        # --- FIX PARA ACENTUAÇÃO NOS ARQUIVOS DO DRIVE ---
-        # Converte "Margô" para "Margo" antes de limpar a string
-        file_name_no_accents = ''.join(c for c in unicodedata.normalize('NFD', file_name_raw) if unicodedata.category(c) != 'Mn')
+        # Função helper para limpar acentos e pontuação para comparação
+        def clean_str(s):
+            s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+            s = re.sub(r"[^a-zA-Z0-9]", " ", s).lower()
+            return " ".join(s.split())
+
+        file_clean = clean_str(file_name_raw)
         
-        file_clean = re.sub(r"[^a-zA-Z0-9]", " ", file_name_no_accents).lower()
-        file_clean = " ".join(file_clean.split()) # Remove espaços duplos
+        # Pega o título limpo pela biblioteca PTN (ex: "Criminal Minds Beyond Borders")
+        ptn_title = item.get("sortkeys", {}).get("title", "")
+
+        STOP_WORDS = {
+            "and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a", "an",
+            "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
+            "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
+        }
 
         match_found = False
 
         for title in self.strm_meta.titles:
-            # Título Esperado Limpo (já vem sem acento do utils.py, mas garantimos aqui)
-            title_clean = re.sub(r"[^a-zA-Z0-9]", " ", title).lower()
+            title_clean = clean_str(title)
             
-            # --- FIX: Filtra sobras de pontuação de 1 letra ---
             words = [w for w in title_clean.split() if len(w) > 1]
             if not words: 
                 words = title_clean.split()
             
+            strong_words = [w for w in words if w not in STOP_WORDS]
+            if not strong_words: 
+                strong_words = words
+
             title_clean_filtered = " ".join(words)
+            is_match_candidate = False
             
             # --- CENÁRIO 1: TÍTULO CURTO (Até 2 palavras) ---
             if len(words) <= 2:
                 if f" {title_clean_filtered} " in f" {file_clean} ":
-                    match_found = True
-                    break
-                elif title_clean_filtered in file_clean:
+                    is_match_candidate = True
+                else:
                     pattern = r'\b' + re.escape(title_clean_filtered) + r'\b'
                     if re.search(pattern, file_clean):
-                        match_found = True
-                        break
+                        is_match_candidate = True
 
             # --- CENÁRIO 2: TÍTULO MÉDIO/LONGO (3+ palavras) ---
             else:
-                STOP_WORDS = {
-                    "and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a", "an",
-                    "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
-                    "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
-                }
-                strong_words = [w for w in words if w not in STOP_WORDS]
-                
-                if not strong_words: strong_words = words
-
                 file_tokens = set(file_clean.split())
-                
                 missing = [w for w in strong_words if w not in file_tokens]
                 
-                if not missing:
-                    match_found = True
-                    break
+                if not missing or (len(strong_words) >= 4 and len(missing) <= 1):
+                    is_match_candidate = True
+
+            # --- FILTRO ANTI-SPINOFF (Para Séries Derivadas) ---
+            if is_match_candidate:
+                # Só aplica a checagem se for série e se o PTN conseguiu extrair um título
+                if self.strm_meta.type == "series" and ptn_title:
+                    ptn_clean = clean_str(ptn_title)
+                    ptn_strong = [w for w in ptn_clean.split() if w not in STOP_WORDS]
+                    
+                    # Se o título do arquivo tem palavras fortes a mais (ex: "Beyond Borders"), rejeita!
+                    # Usamos '+ 1' para tolerar palavras como "Pilot" ou "Remastered" que às vezes aparecem.
+                    if len(ptn_strong) > len(strong_words) + 1:
+                        continue 
                 
-                if len(strong_words) >= 4 and len(missing) <= 1:
-                    match_found = True
-                    break
+                match_found = True
+                break
 
         return match_found
 
