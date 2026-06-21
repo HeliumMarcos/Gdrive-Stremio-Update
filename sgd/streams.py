@@ -126,8 +126,10 @@ class Streams:
         except:
             file_size = "0B"
 
-        # Codec
-        if any(x in name_upper for x in ["HEVC", "X265", "H265", "H.265"]):
+        # Codec (Atualizado com AV1)
+        if any(x in name_upper for x in ["AV1", "AV01"]):
+            codec = "AV1"
+        elif any(x in name_upper for x in ["HEVC", "X265", "H265", "H.265"]):
             codec = "H.265"
         elif any(x in name_upper for x in ["AVC", "X264", "H264", "H.264"]):
             codec = "H.264"
