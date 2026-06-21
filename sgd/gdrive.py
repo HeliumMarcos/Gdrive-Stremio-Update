@@ -44,9 +44,9 @@ class GoogleDrive:
 
         # 3. Lógica Híbrida
         if len(strong_words) <= 1:
-            final_words = all_words # Usa tudo (ex: "The Rip")
+            final_words = all_words 
         else:
-            final_words = strong_words # Usa só as fortes (ex: "Carpenter Son")
+            final_words = strong_words 
 
         if not final_words:
             final_words = all_words
@@ -60,7 +60,7 @@ class GoogleDrive:
 
     def get_id_query(self, sm):
         """
-        Gera a query de busca usando o ID do IMDb diretamente no nome do arquivo.
+        Gera a query de busca usando o ID do IMDb com múltiplas variações de formatação.
         """
         imdb_id = getattr(sm, "id", None)
         if not imdb_id:
@@ -73,9 +73,15 @@ class GoogleDrive:
             except (TypeError, ValueError):
                 se_raw, ep_raw = sm.se, sm.ep
 
+            s_pad = str(sm.se).zfill(2)
+            e_pad = str(sm.ep).zfill(2)
+
+            # --- NOVOS FORMATOS ADICIONADOS AQUI ---
             candidates = {
-                f"{imdb_id}:{se_raw}:{ep_raw}",
-                f"{imdb_id}:{sm.se}:{sm.ep}",
+                f"{imdb_id}:{se_raw}:{ep_raw}",  # tt1341338:1:9
+                f"{imdb_id}:{s_pad}:{e_pad}",    # tt1341338:01:09
+                f"{imdb_id} T{s_pad}E{e_pad}",   # tt1341338 T01E09 (Seu pedido)
+                f"{imdb_id} S{s_pad}E{e_pad}",   # tt1341338 S01E09 (Padrão Cena)
             }
 
             parts = [f"name contains '{c}'" for c in candidates]
@@ -87,9 +93,9 @@ class GoogleDrive:
         out = []
         
         print(f"--- DEBUG ---")
-        print(f"TITULO: {sm.titles}")
+        print(f"TITULOS RECEBIDOS: {sm.titles}")
 
-        # --- 1. BUSCA POR TÍTULO ---
+        # --- 1. BUSCA POR TÍTULOS ---
         if sm.stream_type == "series":
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
@@ -189,7 +195,6 @@ class GoogleDrive:
         return self.drive_names.contents
 
     def _dedupe_and_sort(self, response):
-        """Remove arquivos duplicados e ordena do maior pro menor tamanho."""
         uids = set()
 
         def check_dupe(item):
