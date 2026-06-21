@@ -19,11 +19,10 @@ class GoogleDrive:
     def qgen(string, chain="and", splitter=" ", method=None):
         out = ""
 
-        get_method = lambda _: method
-        if not method:
-            get_method = lambda w: "fullText" if w.isdigit() else "name"
+        # FIX: O GDrive falha muito usando fullText para números em nomes de arquivo.
+        # Agora usamos 'name' para TUDO, garantindo que ele busque exatamente no título do arquivo.
+        get_method = lambda _: method if method else "name"
 
-        # --- LISTA DE PALAVRAS COMUNS (STOP WORDS) INGLÊS E PT-BR ---
         STOP_WORDS = {
             "the", "of", "and", "a", "an", "to", "in", "for", "on", "at", 
             "by", "with", "from", "as", "is", "it",
@@ -31,20 +30,16 @@ class GoogleDrive:
             "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
         }
 
-        # 1. Limpeza básica
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         cleaned_string = " ".join(cleaned_string.split())
 
         all_words = []
-        # Filtra palavras inúteis
         for w in cleaned_string.split(splitter):
             if w and (len(w) > 1 or w.isdigit()):
                 all_words.append(w)
 
-        # 2. Identifica palavras "Fortes"
         strong_words = [w for w in all_words if w.lower() not in STOP_WORDS]
 
-        # 3. Lógica Híbrida
         if len(strong_words) <= 1:
             final_words = all_words 
         else:
@@ -61,9 +56,6 @@ class GoogleDrive:
         return out
 
     def get_id_query(self, sm):
-        """
-        Gera a query de busca usando o ID do IMDb diretamente no nome do arquivo.
-        """
         imdb_id = getattr(sm, "id", None)
         if not imdb_id:
             return None
@@ -93,10 +85,6 @@ class GoogleDrive:
     def get_query(self, sm):
         out = []
         
-        print(f"--- DEBUG ---")
-        print(f"TITULOS RECEBIDOS: {sm.titles}")
-
-        # --- 1. BUSCA POR TÍTULOS ---
         if sm.stream_type == "series":
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
@@ -130,11 +118,9 @@ class GoogleDrive:
                 if q:
                     out.append(q)
                     
-        # --- 2. BUSCA POR ID (SEMPRE INCLUÍDA NO LOTE) ---
         id_query = self.get_id_query(sm)
         if id_query:
             out.append(id_query)
-            print(f"QUERY ID ADICIONADA: {id_query}")
         
         return out
 
@@ -142,8 +128,6 @@ class GoogleDrive:
         def callb(request_id, response, exception):
             if response:
                 output.extend(response.get("files", []))
-            if exception:
-                print(f"Erro GDrive: {exception}")
 
         output = []
         if self.query:
@@ -151,8 +135,6 @@ class GoogleDrive:
             batch = self.drive_instance.new_batch_http_request()
             
             for q in self.query:
-                print(f"BUSCA SMART: {q}") 
-                
                 batch_inst = files.list(
                     q=f"({q}) and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -165,7 +147,7 @@ class GoogleDrive:
             try:
                 batch.execute()
             except Exception as e:
-                print(f"Erro Batch: {e}")
+                pass
                 
             return output
         return output
