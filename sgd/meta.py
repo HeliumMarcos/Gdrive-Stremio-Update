@@ -2,6 +2,7 @@ import os
 import json
 import lxml
 import cchardet
+import unicodedata
 import sgd.utils as ut
 from bs4 import BeautifulSoup
 from sgd.cache import Json
@@ -17,21 +18,17 @@ class IMDb:
 
         self.fetch_dest = "None"
         
-        # --- 1. TENTA TMDB PRIMEIRO (Para pegar PT-BR, Inglês e Original) ---
         if self.get_meta_from_tmdb():
             self.fetch_dest = "TMDB_API"
             
-        # --- 2. FALLBACK PARA CINEMETA (Se o TMDB falhar ou não tiver API Key) ---
         if self.get_meta_from_cinemeta():
             if self.fetch_dest == "None":
                 self.fetch_dest = "CINEMETA"
         
-        # --- 3. FALLBACK PARA IMDB SUGGEST ---
         if not self.titles and self.get_meta_from_imdb_sg():
             if self.fetch_dest == "None":
                 self.fetch_dest = "IMDB_SG_API"
 
-        # --- 4. COMPLEMENTO HTML IMDB ---
         try:
             self.get_meta_from_imdb_html()
             if self.fetch_dest == "None" and self.titles:
@@ -45,24 +42,29 @@ class IMDb:
                 f"Couldn't find metadata for {self.type} {self.id}!"
             )
             
-        # Remove nomes duplicados e vazios para não fazer buscas repetidas
+        # --- O PULO DO GATO: Cria versão Com Acento e Sem Acento ---
         cleaned_titles = []
         for t in self.titles:
             if t and isinstance(t, str) and len(t) > 1:
                 clean_t = t.lower().strip()
+                unaccented_t = ''.join(c for c in unicodedata.normalize('NFD', clean_t) if unicodedata.category(c) != 'Mn')
+                
+                # Adiciona o título original (Com acento)
                 if clean_t not in cleaned_titles:
                     cleaned_titles.append(clean_t)
+                    
+                # Adiciona o título limpo (Sem acento) para cobrir todas as possibilidades
+                if unaccented_t not in cleaned_titles and unaccented_t != clean_t:
+                    cleaned_titles.append(unaccented_t)
+                    
         self.titles = cleaned_titles
 
     def get_meta_from_tmdb(self):
-        """Busca títulos no TMDB (Inglês, PT-BR e Original) usando a API Key do Vercel"""
         tmdb_key = os.environ.get("TMDB_API_KEY")
         if not tmdb_key:
-            print("AVISO: TMDB_API_KEY não configurada no Vercel. Usando metadados básicos (Apenas Inglês).")
             return False
             
         try:
-            # 1. Busca o ID do TMDB usando o ID do IMDb
             find_url = f"api.themoviedb.org/3/find/{self.id}?api_key={tmdb_key}&external_source=imdb_id"
             find_resp = ut.req_wrapper(find_url)
             if not find_resp: return False
@@ -76,20 +78,16 @@ class IMDb:
             item = results[0]
             tmdb_id = item.get("id")
             
-            # Adiciona Título Original
             original_title = item.get("original_title") or item.get("original_name")
             if original_title: self.titles.append(ut.sanitize(original_title))
             
-            # Adiciona Título em Inglês
             eng_title = item.get("title") or item.get("name")
             if eng_title: self.titles.append(ut.sanitize(eng_title))
             
-            # Pega o Ano
             date_str = item.get("release_date") or item.get("first_air_date")
             if date_str and len(date_str) >= 4 and ut.is_year(date_str[:4]):
                 self.year = date_str[:4]
                 
-            # 2. Faz uma segunda requisição para pegar o título traduzido em PT-BR
             pt_url = f"api.themoviedb.org/3/{media_type}/{tmdb_id}?api_key={tmdb_key}&language=pt-BR"
             pt_resp = ut.req_wrapper(pt_url)
             if pt_resp:
@@ -100,7 +98,6 @@ class IMDb:
             return True
             
         except Exception as e:
-            print(f"Erro ao consultar TMDB: {e}")
             return False
 
     def get_meta_from_imdb_html(self):
@@ -220,5 +217,3 @@ class Meta(IMDb):
             cached.contents["ep"] = self.ep
             self.__dict__.update(cached.contents)
             self.fetch_dest = "CACHE"
-
-        print(f"METADATA ({self.fetch_dest}): {self.titles} | Ano: {self.year}")
