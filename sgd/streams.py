@@ -58,7 +58,7 @@ class Streams:
 
     def is_semi_valid_title(self, item):
         """
-        Lógica Blindada com Filtro Anti-Spinoff e Anti-Vazamento de Episódio
+        Lógica Blindada com Filtro Anti-Spinoff e Proteção de Grupos de Lançamento BR
         """
         file_name_raw = self.item.get("name", "")
         
@@ -71,8 +71,14 @@ class Streams:
             s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
             s = re.sub(r"[^a-zA-Z0-9]", " ", s).lower()
             return " ".join(s.split())
+            
+        def filter_1_letter(s):
+            # Preserva números (ex: "2") e palavras com mais de 1 letra
+            return " ".join([w for w in s.split() if len(w) > 1 or w.isdigit()])
 
         file_clean = clean_str(file_name_raw)
+        file_clean_filtered = filter_1_letter(file_clean)
+        
         ptn_title = item.get("sortkeys", {}).get("title", "")
 
         STOP_WORDS = {
@@ -81,45 +87,52 @@ class Streams:
             "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
         }
         
-        # Lista de "sobras" inofensivas que o PTN às vezes deixa no título e que não indicam spinoff
+        # Lista GIGANTE de sobras inofensivas (incluindo grupos de lançamento pirata BR)
         ALLOWED_EXTRAS = {
             "filme", "movie", "series", "serie", "temporada", "season", 
             "pt", "br", "dublado", "legendado", "dual", "audio", "remastered", 
             "remaster", "director", "cut", "extended", "unrated", "edition", 
             "part", "parte", "vol", "volume", "ep", "episodio", "1080p", "4k", 
             "2160p", "720p", "hd", "web", "dl", "bluray", "remux", "tv",
-            "h264", "h265", "hevc", "avc", "aac", "ddp", "atmos", "x264", "x265", "amzn", "nf"
+            "h264", "h265", "hevc", "avc", "aac", "ddp", "atmos", "x264", "x265", 
+            "amzn", "nf", "dsnp", "max", "hbo", "peacock", "hulu", "apple", "appletv",
+            "bioma", "c76", "lapumia", "wolverdon", "bludv", "comandotorrents", "comando",
+            "torrent", "torrents", "yts", "yify", "rarbg", "rmteam", "mkv", "mp4", "avi",
+            "dvdrip", "webrip", "brrip", "bdrip", "ts", "cam", "rip", "leg", "dub"
         }
 
         match_found = False
 
         for title in self.strm_meta.titles:
             title_clean = clean_str(title)
+            title_clean_filtered = filter_1_letter(title_clean)
             
-            # FIX: Mantém a palavra se for maior que 1 OU se for um número (salvando MK 2, Mexico 86, etc)
-            words = [w for w in title_clean.split() if len(w) > 1 or w.isdigit()]
-            if not words: 
-                words = title_clean.split()
+            # Fallback caso o título seja LITERALMENTE 1 letra (Ex: O filme "M" de 1931)
+            if not title_clean_filtered:
+                title_clean_filtered = title_clean
+                file_clean_filtered = file_clean
+            
+            words = title_clean_filtered.split()
             
             strong_words = [w for w in words if w not in STOP_WORDS]
             if not strong_words: 
                 strong_words = words
 
-            title_clean_filtered = " ".join(words)
             is_match_candidate = False
             
             # --- CENÁRIO 1: TÍTULO CURTO (Até 2 palavras fortes) ---
             if len(words) <= 2:
-                if f" {title_clean_filtered} " in f" {file_clean} ":
+                # Compara usando as strings filtradas ("Sou Frankelda" contra "Sou Frankelda")
+                if f" {title_clean_filtered} " in f" {file_clean_filtered} ":
                     is_match_candidate = True
                 else:
                     pattern = r'\b' + re.escape(title_clean_filtered) + r'\b'
-                    if re.search(pattern, file_clean):
+                    if re.search(pattern, file_clean_filtered):
                         is_match_candidate = True
 
             # --- CENÁRIO 2: TÍTULO MÉDIO/LONGO (3+ palavras) ---
             else:
-                file_tokens = set(file_clean.split())
+                file_tokens = set(file_clean_filtered.split())
                 missing = [w for w in strong_words if w not in file_tokens]
                 
                 if not missing or (len(strong_words) >= 4 and len(missing) <= 1):
