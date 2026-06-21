@@ -1,6 +1,7 @@
 import os
 import urllib
 import re
+import unicodedata
 from sgd.ptn import parse_title
 from sgd.utils import sanitize, hr_size
 
@@ -69,13 +70,17 @@ class Streams:
         if imdb_id and imdb_id.lower() in file_name_raw.lower():
             return True
 
-        file_clean = re.sub(r"[^a-zA-Z0-9]", " ", file_name_raw).lower()
+        # --- FIX PARA ACENTUAÇÃO NOS ARQUIVOS DO DRIVE ---
+        # Converte "Margô" para "Margo" antes de limpar a string
+        file_name_no_accents = ''.join(c for c in unicodedata.normalize('NFD', file_name_raw) if unicodedata.category(c) != 'Mn')
+        
+        file_clean = re.sub(r"[^a-zA-Z0-9]", " ", file_name_no_accents).lower()
         file_clean = " ".join(file_clean.split()) # Remove espaços duplos
 
         match_found = False
 
         for title in self.strm_meta.titles:
-            # Título Esperado Limpo
+            # Título Esperado Limpo (já vem sem acento do utils.py, mas garantimos aqui)
             title_clean = re.sub(r"[^a-zA-Z0-9]", " ", title).lower()
             
             # --- FIX: Filtra sobras de pontuação de 1 letra ---
@@ -98,7 +103,11 @@ class Streams:
 
             # --- CENÁRIO 2: TÍTULO MÉDIO/LONGO (3+ palavras) ---
             else:
-                STOP_WORDS = {"and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a"}
+                STOP_WORDS = {
+                    "and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a", "an",
+                    "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
+                    "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
+                }
                 strong_words = [w for w in words if w not in STOP_WORDS]
                 
                 if not strong_words: strong_words = words
