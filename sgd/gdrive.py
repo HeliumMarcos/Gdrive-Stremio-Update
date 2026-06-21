@@ -23,10 +23,12 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
-        # --- LISTA DE PALAVRAS COMUNS (STOP WORDS) ---
+        # --- LISTA DE PALAVRAS COMUNS (STOP WORDS) INGLÊS E PT-BR ---
         STOP_WORDS = {
             "the", "of", "and", "a", "an", "to", "in", "for", "on", "at", 
-            "by", "with", "from", "as", "is", "it"
+            "by", "with", "from", "as", "is", "it",
+            "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
+            "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
         }
 
         # 1. Limpeza básica
@@ -60,7 +62,7 @@ class GoogleDrive:
 
     def get_id_query(self, sm):
         """
-        Gera a query de busca usando o ID do IMDb com múltiplas variações de formatação.
+        Gera a query de busca usando o ID do IMDb diretamente no nome do arquivo.
         """
         imdb_id = getattr(sm, "id", None)
         if not imdb_id:
@@ -76,12 +78,11 @@ class GoogleDrive:
             s_pad = str(sm.se).zfill(2)
             e_pad = str(sm.ep).zfill(2)
 
-            # --- NOVOS FORMATOS ADICIONADOS AQUI ---
             candidates = {
-                f"{imdb_id}:{se_raw}:{ep_raw}",  # tt1341338:1:9
-                f"{imdb_id}:{s_pad}:{e_pad}",    # tt1341338:01:09
-                f"{imdb_id} T{s_pad}E{e_pad}",   # tt1341338 T01E09 (Seu pedido)
-                f"{imdb_id} S{s_pad}E{e_pad}",   # tt1341338 S01E09 (Padrão Cena)
+                f"{imdb_id}:{se_raw}:{ep_raw}",
+                f"{imdb_id}:{s_pad}:{e_pad}",
+                f"{imdb_id} T{s_pad}E{e_pad}",
+                f"{imdb_id} S{s_pad}E{e_pad}",
             }
 
             parts = [f"name contains '{c}'" for c in candidates]
