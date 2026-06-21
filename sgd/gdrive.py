@@ -58,13 +58,38 @@ class GoogleDrive:
             
         return out
 
+    def get_id_query(self, sm):
+        """
+        Gera a query de busca usando o ID do IMDb diretamente no nome do arquivo.
+        """
+        imdb_id = getattr(sm, "id", None)
+        if not imdb_id:
+            return None
+
+        if sm.stream_type == "series":
+            try:
+                se_raw = str(int(sm.se))
+                ep_raw = str(int(sm.ep))
+            except (TypeError, ValueError):
+                se_raw, ep_raw = sm.se, sm.ep
+
+            candidates = {
+                f"{imdb_id}:{se_raw}:{ep_raw}",
+                f"{imdb_id}:{sm.se}:{sm.ep}",
+            }
+
+            parts = [f"name contains '{c}'" for c in candidates]
+            return " or ".join(parts)
+
+        return f"name contains '{imdb_id}'"
+
     def get_query(self, sm):
         out = []
         
-        # DEBUG
         print(f"--- DEBUG ---")
         print(f"TITULO: {sm.titles}")
 
+        # --- 1. BUSCA POR TÍTULO ---
         if sm.stream_type == "series":
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
@@ -97,43 +122,14 @@ class GoogleDrive:
                 q = self.qgen(title)
                 if q:
                     out.append(q)
+                    
+        # --- 2. BUSCA POR ID (SEMPRE INCLUÍDA NO LOTE) ---
+        id_query = self.get_id_query(sm)
+        if id_query:
+            out.append(id_query)
+            print(f"QUERY ID ADICIONADA: {id_query}")
         
         return out
-
-    def get_id_query(self, sm):
-        """
-        Gera a query de busca usando o ID do IMDb diretamente no nome do
-        arquivo. Usado como FALLBACK, quando a busca por título (get_query)
-        não encontra nenhum resultado.
-
-        Ex: filme    -> tt37532356
-            episódio -> tt37532356:1:9  (temporada 1, episódio 9)
-        """
-        imdb_id = getattr(sm, "id", None)
-        if not imdb_id:
-            return None
-
-        if sm.stream_type == "series":
-            # sm.se / sm.ep vêm com zero à esquerda (ex: "01", "09")
-            try:
-                se_raw = str(int(sm.se))  # "01" -> "1"
-                ep_raw = str(int(sm.ep))  # "09" -> "9"
-            except (TypeError, ValueError):
-                se_raw, ep_raw = sm.se, sm.ep
-
-            # Tenta tanto o formato "cru" (tt37532356:1:9) quanto o
-            # formato com zero à esquerda (tt37532356:01:09), caso algum
-            # arquivo esteja nomeado dessa outra forma.
-            candidates = {
-                f"{imdb_id}:{se_raw}:{ep_raw}",
-                f"{imdb_id}:{sm.se}:{sm.ep}",
-            }
-
-            parts = [f"name contains '{c}'" for c in candidates]
-            return " or ".join(parts)
-
-        # Filme: busca direta pelo ID
-        return f"name contains '{imdb_id}'"
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
@@ -150,8 +146,9 @@ class GoogleDrive:
             for q in self.query:
                 print(f"BUSCA SMART: {q}") 
                 
+                # Adicionado parênteses na query para evitar problemas lógicos com o 'and trashed=false'
                 batch_inst = files.list(
-                    q=f"{q} and trashed=false and mimeType contains 'video/'",
+                    q=f"({q}) and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
                     pageSize=self.page_size,
                     supportsAllDrives=True,
@@ -182,7 +179,6 @@ class GoogleDrive:
         for drive_id in drive_ids:
             if not self.drive_names.contents.get(drive_id):
                 self.drive_names.contents[drive_id] = None
-                # --- AQUI ESTAVA O ERRO, CORRIGIDO AGORA: ---
                 batch_inst = drives.get(driveId=drive_id, fields="name, id")
                 batch.add(batch_inst, callback=callb)
 
@@ -194,8 +190,7 @@ class GoogleDrive:
         return self.drive_names.contents
 
     def _dedupe_and_sort(self, response):
-        """Remove arquivos duplicados (mesmo arquivo aparecendo em vários
-        drives compartilhados) e ordena do maior pro menor tamanho."""
+        """Remove arquivos duplicados e ordena do maior pro menor tamanho."""
         uids = set()
 
         def check_dupe(item):
@@ -223,20 +218,6 @@ class GoogleDrive:
         if response:
             self.len_response = len(response)
             self.results = self._dedupe_and_sort(response)
-
-        # --- FALLBACK: nada encontrado pelo título? tenta buscar pelo ID ---
-        if not self.results:
-            id_query = self.get_id_query(stream_meta)
-            if id_query:
-                print("--- Nenhum resultado por título. Buscando por ID ---")
-                print(f"BUSCA POR ID: {id_query}")
-
-                self.query = [id_query]
-                id_response = self.file_list("id, name, size, driveId, md5Checksum")
-
-                if id_response:
-                    self.len_response = len(id_response)
-                    self.results = self._dedupe_and_sort(id_response)
 
         self.get_drive_names()
         return self.results
