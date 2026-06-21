@@ -1,6 +1,5 @@
 import json
 import requests
-import unicodedata
 from sgd.cache import Pickle
 
 
@@ -37,11 +36,8 @@ def is_year(string):
 
 def sanitize(string, valid_chars=". "):
     """Return alphanumeric input with certain non alphanumeric chars intact"""
-    # Remove acentos (Ex: 'não' vira 'nao', 'é' vira 'e')
-    string = ''.join(c for c in unicodedata.normalize('NFD', string) if unicodedata.category(c) != 'Mn')
-    
+    # Deixamos os acentos intactos aqui para o meta.py poder criar as duas versões
     chars = [ch if ch.isalnum() or ch in valid_chars else " " for ch in string]
-    # Join -> split -> join to have just a single space b/w words
     return " ".join("".join(chars).split()).lower()
 
 
@@ -72,7 +68,6 @@ def req_wrapper(url, time_out=3):
 def req_api(url, key="meta"):
     try:
         r = req_wrapper(url)
-        # imbd wont return proper json sometimes so:
         return json.loads(r[r.find("{") :].rstrip(")")).get(key)
     except json.decoder.JSONDecodeError:
         return dict()
