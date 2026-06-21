@@ -58,7 +58,7 @@ class Streams:
 
     def is_semi_valid_title(self, item):
         """
-        Lógica Blindada com Filtro Anti-Spinoff
+        Lógica Blindada com Filtro Anti-Spinoff e Anti-Vazamento de Episódio
         """
         file_name_raw = self.item.get("name", "")
         
@@ -67,15 +67,12 @@ class Streams:
         if imdb_id and imdb_id.lower() in file_name_raw.lower():
             return True
 
-        # Função helper para limpar acentos e pontuação para comparação
         def clean_str(s):
             s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
             s = re.sub(r"[^a-zA-Z0-9]", " ", s).lower()
             return " ".join(s.split())
 
         file_clean = clean_str(file_name_raw)
-        
-        # Pega o título limpo pela biblioteca PTN (ex: "Criminal Minds Beyond Borders")
         ptn_title = item.get("sortkeys", {}).get("title", "")
 
         STOP_WORDS = {
@@ -83,13 +80,24 @@ class Streams:
             "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
             "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
         }
+        
+        # Lista de "sobras" inofensivas que o PTN às vezes deixa no título e que não indicam spinoff
+        ALLOWED_EXTRAS = {
+            "filme", "movie", "series", "serie", "temporada", "season", 
+            "pt", "br", "dublado", "legendado", "dual", "audio", "remastered", 
+            "remaster", "director", "cut", "extended", "unrated", "edition", 
+            "part", "parte", "vol", "volume", "ep", "episodio", "1080p", "4k", 
+            "2160p", "720p", "hd", "web", "dl", "bluray", "remux", "tv",
+            "h264", "h265", "hevc", "avc", "aac", "ddp", "atmos", "x264", "x265", "amzn", "nf"
+        }
 
         match_found = False
 
         for title in self.strm_meta.titles:
             title_clean = clean_str(title)
             
-            words = [w for w in title_clean.split() if len(w) > 1]
+            # FIX: Mantém a palavra se for maior que 1 OU se for um número (salvando MK 2, Mexico 86, etc)
+            words = [w for w in title_clean.split() if len(w) > 1 or w.isdigit()]
             if not words: 
                 words = title_clean.split()
             
@@ -100,7 +108,7 @@ class Streams:
             title_clean_filtered = " ".join(words)
             is_match_candidate = False
             
-            # --- CENÁRIO 1: TÍTULO CURTO (Até 2 palavras) ---
+            # --- CENÁRIO 1: TÍTULO CURTO (Até 2 palavras fortes) ---
             if len(words) <= 2:
                 if f" {title_clean_filtered} " in f" {file_clean} ":
                     is_match_candidate = True
@@ -117,16 +125,18 @@ class Streams:
                 if not missing or (len(strong_words) >= 4 and len(missing) <= 1):
                     is_match_candidate = True
 
-            # --- FILTRO ANTI-SPINOFF (Para Séries Derivadas) ---
+            # --- FILTRO DE BLOQUEIO (Tolerância Zero para Títulos Errados) ---
             if is_match_candidate:
-                # Só aplica a checagem se for série e se o PTN conseguiu extrair um título
-                if self.strm_meta.type == "series" and ptn_title:
+                if ptn_title:
                     ptn_clean = clean_str(ptn_title)
-                    ptn_strong = [w for w in ptn_clean.split() if w not in STOP_WORDS]
+                    ptn_words = ptn_clean.split()
+                    ptn_strong = [w for w in ptn_words if w not in STOP_WORDS]
                     
-                    # Se o título do arquivo tem palavras fortes a mais (ex: "Beyond Borders"), rejeita!
-                    # Usamos '+ 1' para tolerar palavras como "Pilot" ou "Remastered" que às vezes aparecem.
-                    if len(ptn_strong) > len(strong_words) + 1:
+                    # Filtra as palavras fortes que ESTÃO no arquivo, mas NÃO ESTÃO na sua busca
+                    meaningful_extras = [w for w in ptn_strong if w not in strong_words and w not in ALLOWED_EXTRAS]
+                    
+                    # Se sobrar qualquer palavra intrusa no nome base (Ex: "Fighter" ou "Mulher"), descarta
+                    if len(meaningful_extras) > 0:
                         continue 
                 
                 match_found = True
