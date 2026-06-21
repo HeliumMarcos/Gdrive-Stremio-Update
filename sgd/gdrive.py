@@ -23,25 +23,30 @@ class GoogleDrive:
         if not method:
             get_method = lambda w: "fullText" if w.isdigit() else "name"
 
+        # --- LISTA DE PALAVRAS COMUNS (STOP WORDS) ---
         STOP_WORDS = {
-            "the", "of", "and", "a", "an", "to", "in", "for", "on", "at",
+            "the", "of", "and", "a", "an", "to", "in", "for", "on", "at", 
             "by", "with", "from", "as", "is", "it"
         }
 
+        # 1. Limpeza básica
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         cleaned_string = " ".join(cleaned_string.split())
 
         all_words = []
+        # Filtra palavras inúteis
         for w in cleaned_string.split(splitter):
             if w and (len(w) > 1 or w.isdigit()):
                 all_words.append(w)
 
+        # 2. Identifica palavras "Fortes"
         strong_words = [w for w in all_words if w.lower() not in STOP_WORDS]
 
+        # 3. Lógica Híbrida
         if len(strong_words) <= 1:
-            final_words = all_words
+            final_words = all_words # Usa tudo (ex: "The Rip")
         else:
-            final_words = strong_words
+            final_words = strong_words # Usa só as fortes (ex: "Carpenter Son")
 
         if not final_words:
             final_words = all_words
@@ -50,19 +55,20 @@ class GoogleDrive:
             if out:
                 out += f" {chain} "
             out += f"{get_method(word)} contains '{word}'"
-
+            
         return out
 
     def get_query(self, sm):
         out = []
-
+        
+        # DEBUG
         print(f"--- DEBUG ---")
         print(f"TITULO: {sm.titles}")
 
         if sm.stream_type == "series":
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
-
+            
             seep_q = self.qgen(
                 f"S{sm.se}E{sm.ep}, "
                 f"s{sm.se} e{sm.ep}, "
@@ -76,8 +82,7 @@ class GoogleDrive:
             )
             for title in sm.titles:
                 query_part = self.qgen(title)
-                if not query_part:
-                    continue
+                if not query_part: continue
 
                 if len(title.split()) == 1:
                     clean_t = title.replace("'", " ")
@@ -92,50 +97,52 @@ class GoogleDrive:
                 q = self.qgen(title)
                 if q:
                     out.append(q)
-
+        
         return out
 
+    # -------------------------------------------------------
+    # NOVO: Fallback por ID IMDB/Stremio
+    # -------------------------------------------------------
     def get_id_query(self, sm):
-        """Fallback: busca pelo ID Stremio/IMDB quando a busca por título falha.
+        try:
+            raw_id = getattr(sm, 'id', None)
+            if not raw_id:
+                return []
 
-        Formatos esperados em sm.id:
-            Filme:  tt37532356
-            Série:  tt37532356:1:9  (id:temporada:episodio)
-        """
-        raw_id = getattr(sm, 'id', None)
-        if not raw_id:
+            parts = str(raw_id).split(":")
+            base_id = parts[0]  # Ex: tt37532356
+
+            print(f"--- FALLBACK ID: {raw_id} ---")
+
+            out = []
+
+            if sm.stream_type == "series":
+                try:
+                    se = int(parts[1]) if len(parts) >= 2 else int(sm.se)
+                    ep = int(parts[2]) if len(parts) >= 3 else int(sm.ep)
+                except:
+                    se = int(sm.se)
+                    ep = int(sm.ep)
+
+                seep_q = self.qgen(
+                    f"S{se}E{ep}, "
+                    f"s{se} e{ep}, "
+                    f"season {se} episode {ep}, "
+                    f'"{se} x {ep}", '
+                    f'"{se} x {str(ep).zfill(2)}"',
+                    chain="or",
+                    splitter=", ",
+                    method="fullText",
+                )
+                out.append(f"fullText contains '{base_id}' and ({seep_q})")
+            else:
+                out.append(f"fullText contains '{base_id}'")
+
+            return out
+        except Exception as e:
+            print(f"Erro get_id_query: {e}")
             return []
-
-        parts = str(raw_id).split(":")
-        base_id = parts[0]  # Ex: tt37532356
-
-        print(f"--- FALLBACK ID: {raw_id} ---")
-
-        out = []
-
-        if sm.stream_type == "series":
-            try:
-                se = int(parts[1]) if len(parts) >= 2 else int(sm.se)
-                ep = int(parts[2]) if len(parts) >= 3 else int(sm.ep)
-            except:
-                se = int(sm.se)
-                ep = int(sm.ep)
-
-            seep_q = self.qgen(
-                f"S{se}E{ep}, "
-                f"s{se} e{ep}, "
-                f"season {se} episode {ep}, "
-                f'"{se} x {ep}", '
-                f'"{se} x {str(ep).zfill(2)}"',
-                chain="or",
-                splitter=", ",
-                method="fullText",
-            )
-            out.append(f"fullText contains '{base_id}' and ({seep_q})")
-        else:
-            out.append(f"fullText contains '{base_id}'")
-
-        return out
+    # -------------------------------------------------------
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
@@ -148,10 +155,10 @@ class GoogleDrive:
         if self.query:
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
-
+            
             for q in self.query:
-                print(f"BUSCA SMART: {q}")
-
+                print(f"BUSCA SMART: {q}") 
+                
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -165,7 +172,7 @@ class GoogleDrive:
                 batch.execute()
             except Exception as e:
                 print(f"Erro Batch: {e}")
-
+                
             return output
         return output
 
@@ -176,11 +183,10 @@ class GoogleDrive:
 
         batch = self.drive_instance.new_batch_http_request()
         drives = self.drive_instance.drives()
-
+        
         drive_ids = set(item.get("driveId") for item in self.results if item.get("driveId"))
-
-        if not drive_ids:
-            return {}
+        
+        if not drive_ids: return {}
 
         for drive_id in drive_ids:
             if not self.drive_names.contents.get(drive_id):
@@ -190,24 +196,23 @@ class GoogleDrive:
 
         try:
             batch.execute()
-        except:
-            pass
-
+        except: pass
+            
         self.drive_names.save()
         return self.drive_names.contents
 
     def search(self, stream_meta):
         self.results = []
-
-        # 1ª tentativa: busca por título
         self.query = self.get_query(stream_meta)
+
         response = self.file_list("id, name, size, driveId, md5Checksum")
 
-        # 2ª tentativa: fallback por ID (somente se título não retornou nada)
+        # --- FALLBACK POR ID (somente se título não retornou nada) ---
         if not response:
             self.query = self.get_id_query(stream_meta)
             if self.query:
                 response = self.file_list("id, name, size, driveId, md5Checksum")
+        # -------------------------------------------------------------
 
         self.len_response = 0
 
@@ -219,8 +224,8 @@ class GoogleDrive:
                 driveId = item.get("driveId", "MyDrive")
                 md5Checksum = item.get("md5Checksum")
                 uid = driveId + (md5Checksum if md5Checksum else item.get("id"))
-                if uid in uids:
-                    return False
+
+                if uid in uids: return False
                 uids.add(uid)
                 return True
 
@@ -234,18 +239,15 @@ class GoogleDrive:
         return self.results
 
     def get_acc_token(self):
-        if not self.acc_token.contents:
-            self.acc_token.contents = {}
+        if not self.acc_token.contents: self.acc_token.contents = {}
         expires = self.acc_token.contents.get("expires_in")
         is_expired = True
-
+        
         if expires:
             try:
-                if isinstance(expires, str):
-                    expires = datetime.fromisoformat(expires)
+                if isinstance(expires, str): expires = datetime.fromisoformat(expires)
                 is_expired = expires <= datetime.now()
-            except:
-                pass
+            except: pass
 
         if is_expired:
             body = {
@@ -261,7 +263,6 @@ class GoogleDrive:
                     oauth_resp["expires_in"] = timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
                     self.acc_token.contents = oauth_resp
                     self.acc_token.save()
-            except:
-                pass
+            except: pass
 
         return self.acc_token.contents.get("access_token")
