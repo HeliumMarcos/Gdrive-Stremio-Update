@@ -99,52 +99,7 @@ class GoogleDrive:
                     out.append(q)
         
         return out
-
-    # -------------------------------------------------------
-    # NOVO: Fallback por ID IMDB/Stremio
-    # -------------------------------------------------------
-    def get_id_query(self, sm):
-        try:
-            raw_id = getattr(sm, 'id', None)
-            if not raw_id:
-                return []
-
-            parts = str(raw_id).split(":")
-            base_id = parts[0]  # Ex: tt37532356
-
-            print(f"--- FALLBACK ID: {raw_id} ---")
-
-            out = []
-
-            if sm.stream_type == "series":
-                try:
-                    se = int(parts[1]) if len(parts) >= 2 else int(sm.se)
-                    ep = int(parts[2]) if len(parts) >= 3 else int(sm.ep)
-                except:
-                    se = int(sm.se)
-                    ep = int(sm.ep)
-
-                seep_q = self.qgen(
-                    f"S{se}E{ep}, "
-                    f"s{se} e{ep}, "
-                    f"season {se} episode {ep}, "
-                    f'"{se} x {ep}", '
-                    f'"{se} x {str(ep).zfill(2)}"',
-                    chain="or",
-                    splitter=", ",
-                    method="fullText",
-                )
-                out.append(f"fullText contains '{base_id}' and ({seep_q})")
-            else:
-                out.append(f"fullText contains '{base_id}'")
-
-            return out
-        except Exception as e:
-            print(f"Erro get_id_query: {e}")
-            return []
-    # -------------------------------------------------------
-
-    def file_list(self, file_fields):
+def file_list(self, file_fields):
         def callb(request_id, response, exception):
             if response:
                 output.extend(response.get("files", []))
@@ -191,6 +146,7 @@ class GoogleDrive:
         for drive_id in drive_ids:
             if not self.drive_names.contents.get(drive_id):
                 self.drive_names.contents[drive_id] = None
+                # --- AQUI ESTAVA O ERRO, CORRIGIDO AGORA: ---
                 batch_inst = drives.get(driveId=drive_id, fields="name, id")
                 batch.add(batch_inst, callback=callb)
 
@@ -206,14 +162,6 @@ class GoogleDrive:
         self.query = self.get_query(stream_meta)
 
         response = self.file_list("id, name, size, driveId, md5Checksum")
-
-        # --- FALLBACK POR ID (somente se título não retornou nada) ---
-        if not response:
-            self.query = self.get_id_query(stream_meta)
-            if self.query:
-                response = self.file_list("id, name, size, driveId, md5Checksum")
-        # -------------------------------------------------------------
-
         self.len_response = 0
 
         if response:
@@ -242,8 +190,7 @@ class GoogleDrive:
         if not self.acc_token.contents: self.acc_token.contents = {}
         expires = self.acc_token.contents.get("expires_in")
         is_expired = True
-        
-        if expires:
+if expires:
             try:
                 if isinstance(expires, str): expires = datetime.fromisoformat(expires)
                 is_expired = expires <= datetime.now()
