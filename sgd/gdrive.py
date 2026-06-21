@@ -55,12 +55,12 @@ class GoogleDrive:
             if out:
                 out += f" {chain} "
             out += f"{get_method(word)} contains '{word}'"
-            
+
         return out
 
     def get_query(self, sm):
         out = []
-        
+
         # DEBUG
         print(f"--- DEBUG ---")
         print(f"TITULO: {sm.titles}")
@@ -68,7 +68,7 @@ class GoogleDrive:
         if sm.stream_type == "series":
             se = str(sm.se).zfill(2)
             ep = str(sm.ep).zfill(2)
-            
+
             seep_q = self.qgen(
                 f"S{sm.se}E{sm.ep}, "
                 f"s{sm.se} e{sm.ep}, "
@@ -97,9 +97,10 @@ class GoogleDrive:
                 q = self.qgen(title)
                 if q:
                     out.append(q)
-        
+
         return out
-def file_list(self, file_fields):
+
+    def file_list(self, file_fields):
         def callb(request_id, response, exception):
             if response:
                 output.extend(response.get("files", []))
@@ -110,10 +111,10 @@ def file_list(self, file_fields):
         if self.query:
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
-            
+
             for q in self.query:
                 print(f"BUSCA SMART: {q}") 
-                
+
                 batch_inst = files.list(
                     q=f"{q} and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -127,7 +128,7 @@ def file_list(self, file_fields):
                 batch.execute()
             except Exception as e:
                 print(f"Erro Batch: {e}")
-                
+
             return output
         return output
 
@@ -138,9 +139,9 @@ def file_list(self, file_fields):
 
         batch = self.drive_instance.new_batch_http_request()
         drives = self.drive_instance.drives()
-        
+
         drive_ids = set(item.get("driveId") for item in self.results if item.get("driveId"))
-        
+
         if not drive_ids: return {}
 
         for drive_id in drive_ids:
@@ -153,7 +154,7 @@ def file_list(self, file_fields):
         try:
             batch.execute()
         except: pass
-            
+
         self.drive_names.save()
         return self.drive_names.contents
 
@@ -190,7 +191,8 @@ def file_list(self, file_fields):
         if not self.acc_token.contents: self.acc_token.contents = {}
         expires = self.acc_token.contents.get("expires_in")
         is_expired = True
-if expires:
+
+        if expires:
             try:
                 if isinstance(expires, str): expires = datetime.fromisoformat(expires)
                 is_expired = expires <= datetime.now()
