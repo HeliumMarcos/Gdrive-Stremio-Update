@@ -146,7 +146,6 @@ class GoogleDrive:
             for q in self.query:
                 print(f"BUSCA SMART: {q}") 
                 
-                # Adicionado parênteses na query para evitar problemas lógicos com o 'and trashed=false'
                 batch_inst = files.list(
                     q=f"({q}) and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
