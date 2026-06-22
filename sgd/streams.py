@@ -33,8 +33,10 @@ class Streams:
                     if self.strm_meta.type == "movie":
                         if self.is_valid_year(self.constructed):
                             self.results.append(self.constructed)
-                    else:
-                        self.results.append(self.constructed)
+                    elif self.strm_meta.type == "series":
+                        # VERIFICAÇÃO CRUCIAL: Bloqueia vazamentos de outras temporadas/episódios
+                        if self.is_valid_episode(self.constructed):
+                            self.results.append(self.constructed)
                     
             except Exception as e:
                 continue
@@ -56,6 +58,28 @@ class Streams:
         except:
             return True
 
+    def is_valid_episode(self, item):
+        """
+        Confere se a temporada e o episódio do arquivo batem exatamente com a requisição do Stremio.
+        """
+        sortkeys = item.get("sortkeys", {})
+        file_se = sortkeys.get("se")
+        file_ep = sortkeys.get("ep")
+        
+        # Fallback caso o PTN não pegue no campo principal (tentativa via regex)
+        if file_se is None or file_ep is None:
+            file_name = self.item.get("name", "").lower()
+            match = re.search(r's(\d+)\s*e(\d+)', file_name)
+            if match:
+                file_se, file_ep = match.groups()
+            else:
+                return False
+                
+        try:
+            return int(file_se) == int(self.strm_meta.se) and int(file_ep) == int(self.strm_meta.ep)
+        except (ValueError, TypeError):
+            return False
+
     def is_semi_valid_title(self, item):
         """
         Lógica Blindada com Filtro Anti-Spinoff e Proteção de Grupos de Lançamento BR
@@ -73,7 +97,6 @@ class Streams:
             return " ".join(s.split())
             
         def filter_1_letter(s):
-            # Preserva números (ex: "2") e palavras com mais de 1 letra
             return " ".join([w for w in s.split() if len(w) > 1 or w.isdigit()])
 
         file_clean = clean_str(file_name_raw)
@@ -87,7 +110,6 @@ class Streams:
             "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
         }
         
-        # Lista GIGANTE de sobras inofensivas (incluindo grupos de lançamento pirata BR)
         ALLOWED_EXTRAS = {
             "filme", "movie", "series", "serie", "temporada", "season", 
             "pt", "br", "dublado", "legendado", "dual", "audio", "remastered", 
@@ -97,8 +119,7 @@ class Streams:
             "h264", "h265", "hevc", "avc", "aac", "ddp", "atmos", "x264", "x265", 
             "amzn", "nf", "dsnp", "max", "hbo", "peacock", "hulu", "apple", "appletv",
             "bioma", "c76", "lapumia", "wolverdon", "bludv", "comandotorrents", "comando",
-            "torrent", "torrents", "yts", "yify", "rarbg", "rmteam", "mkv", "mp4", "avi",
-            "dvdrip", "webrip", "brrip", "bdrip", "ts", "cam", "rip", "leg", "dub"
+            "torrent", "torrents", "yts", "yify", "rarbg", "rmteam", "mkv", "mp4", "avi"
         }
 
         match_found = False
@@ -107,22 +128,18 @@ class Streams:
             title_clean = clean_str(title)
             title_clean_filtered = filter_1_letter(title_clean)
             
-            # Fallback caso o título seja LITERALMENTE 1 letra (Ex: O filme "M" de 1931)
             if not title_clean_filtered:
                 title_clean_filtered = title_clean
                 file_clean_filtered = file_clean
             
             words = title_clean_filtered.split()
-            
             strong_words = [w for w in words if w not in STOP_WORDS]
-            if not strong_words: 
-                strong_words = words
+            if not strong_words: strong_words = words
 
             is_match_candidate = False
             
             # --- CENÁRIO 1: TÍTULO CURTO (Até 2 palavras fortes) ---
             if len(words) <= 2:
-                # Compara usando as strings filtradas ("Sou Frankelda" contra "Sou Frankelda")
                 if f" {title_clean_filtered} " in f" {file_clean_filtered} ":
                     is_match_candidate = True
                 else:
@@ -138,17 +155,13 @@ class Streams:
                 if not missing or (len(strong_words) >= 4 and len(missing) <= 1):
                     is_match_candidate = True
 
-            # --- FILTRO DE BLOQUEIO (Tolerância Zero para Títulos Errados) ---
+            # --- FILTRO DE BLOQUEIO (Anti-Spinoff) ---
             if is_match_candidate:
                 if ptn_title:
                     ptn_clean = clean_str(ptn_title)
-                    ptn_words = ptn_clean.split()
-                    ptn_strong = [w for w in ptn_words if w not in STOP_WORDS]
-                    
-                    # Filtra as palavras fortes que ESTÃO no arquivo, mas NÃO ESTÃO na sua busca
+                    ptn_strong = [w for w in ptn_clean.split() if w not in STOP_WORDS]
                     meaningful_extras = [w for w in ptn_strong if w not in strong_words and w not in ALLOWED_EXTRAS]
                     
-                    # Se sobrar qualquer palavra intrusa no nome base (Ex: "Fighter" ou "Mulher"), descarta
                     if len(meaningful_extras) > 0:
                         continue 
                 
@@ -166,7 +179,7 @@ class Streams:
         except:
             file_size = "0B"
 
-        # Codec (Atualizado com AV1)
+        # Codec (Atualizado com detecção nativa de AV1)
         if any(x in name_upper for x in ["AV1", "AV01"]):
             codec = "AV1"
         elif any(x in name_upper for x in ["HEVC", "X265", "H265", "H.265"]):
@@ -275,11 +288,9 @@ class Streams:
         return self.constructed
 
     def best_res(self, item):
-        MAX_RES = 2160
-        sortkeys = item.pop("sortkeys", {})
-        resolution = sortkeys.get("res")
-
         try:
+            sortkeys = item.get("sortkeys", {})
+            resolution = sortkeys.get("res")
             res_map = {"hd": 720, "fhd": 1080, "uhd": 2160, "4k": 2160}
             if resolution and isinstance(resolution, str):
                 sort_int = res_map.get(resolution.lower()) 
