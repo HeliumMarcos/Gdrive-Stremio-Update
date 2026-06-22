@@ -18,9 +18,7 @@ class GoogleDrive:
     @staticmethod
     def qgen(string, chain="and", splitter=" ", method=None):
         out = ""
-
-        # FIX: O GDrive falha muito usando fullText para números em nomes de arquivo.
-        # Agora usamos 'name' para TUDO, garantindo que ele busque exatamente no título do arquivo.
+        # FIX: Forçamos buscar sempre no nome para evitar vazamento de pastas de outras temporadas
         get_method = lambda _: method if method else "name"
 
         STOP_WORDS = {
@@ -55,40 +53,14 @@ class GoogleDrive:
             
         return out
 
-    def get_id_query(self, sm):
-        imdb_id = getattr(sm, "id", None)
-        if not imdb_id:
-            return None
-
-        if sm.stream_type == "series":
-            try:
-                se_raw = str(int(sm.se))
-                ep_raw = str(int(sm.ep))
-            except (TypeError, ValueError):
-                se_raw, ep_raw = sm.se, sm.ep
-
-            s_pad = str(sm.se).zfill(2)
-            e_pad = str(sm.ep).zfill(2)
-
-            candidates = {
-                f"{imdb_id}:{se_raw}:{ep_raw}",
-                f"{imdb_id}:{s_pad}:{e_pad}",
-                f"{imdb_id} T{s_pad}E{e_pad}",
-                f"{imdb_id} S{s_pad}E{e_pad}",
-            }
-
-            parts = [f"name contains '{c}'" for c in candidates]
-            return " or ".join(parts)
-
-        return f"name contains '{imdb_id}'"
-
     def get_query(self, sm):
         out = []
         
+        print(f"--- DEBUG ---")
+        print(f"TITULOS RECEBIDOS: {sm.titles}")
+
         if sm.stream_type == "series":
-            se = str(sm.se).zfill(2)
-            ep = str(sm.ep).zfill(2)
-            
+            # Mudado o método para 'name' para garantir que procure as tags S01E01 no arquivo de vídeo
             seep_q = self.qgen(
                 f"S{sm.se}E{sm.ep}, "
                 f"s{sm.se} e{sm.ep}, "
@@ -98,7 +70,7 @@ class GoogleDrive:
                 f'"{int(sm.se)} x {sm.ep}"',
                 chain="or",
                 splitter=", ",
-                method="fullText",
+                method="name",
             )
             for title in sm.titles:
                 query_part = self.qgen(title)
@@ -106,10 +78,7 @@ class GoogleDrive:
 
                 if len(title.split()) == 1:
                     clean_t = title.replace("'", " ")
-                    out.append(
-                        f"fullText contains '\"{clean_t}\"' and "
-                        f"name contains '{clean_t}' and ({seep_q})"
-                    )
+                    out.append(f"name contains '{clean_t}' and ({seep_q})")
                 else:
                     out.append(f"{query_part} and ({seep_q})")
         else:
@@ -117,17 +86,39 @@ class GoogleDrive:
                 q = self.qgen(title)
                 if q:
                     out.append(q)
-                    
-        id_query = self.get_id_query(sm)
-        if id_query:
-            out.append(id_query)
         
         return out
+
+    def get_id_query(self, sm):
+        imdb_id = getattr(sm, "id", None)
+        if not imdb_id:
+            return None
+
+        if sm.stream_type == "series":
+            try:
+                se_raw = str(int(sm.se)) 
+                ep_raw = str(int(sm.ep)) 
+            except (TypeError, ValueError):
+                se_raw, ep_raw = sm.se, sm.ep
+
+            candidates = {
+                f"{imdb_id}:{se_raw}:{ep_raw}",
+                f"{imdb_id}:{sm.se}:{sm.ep}",
+                f"{imdb_id} T{str(sm.se).zfill(2)}E{str(sm.ep).zfill(2)}",
+                f"{imdb_id} S{str(sm.se).zfill(2)}E{str(sm.ep).zfill(2)}",
+            }
+
+            parts = [f"name contains '{c}'" for c in candidates]
+            return " or ".join(parts)
+
+        return f"name contains '{imdb_id}'"
 
     def file_list(self, file_fields):
         def callb(request_id, response, exception):
             if response:
                 output.extend(response.get("files", []))
+            if exception:
+                print(f"Erro GDrive: {exception}")
 
         output = []
         if self.query:
@@ -135,6 +126,8 @@ class GoogleDrive:
             batch = self.drive_instance.new_batch_http_request()
             
             for q in self.query:
+                print(f"BUSCA SMART: {q}") 
+                
                 batch_inst = files.list(
                     q=f"({q}) and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -147,7 +140,7 @@ class GoogleDrive:
             try:
                 batch.execute()
             except Exception as e:
-                pass
+                print(f"Erro Batch: {e}")
                 
             return output
         return output
@@ -198,6 +191,11 @@ class GoogleDrive:
     def search(self, stream_meta):
         self.results = []
         self.query = self.get_query(stream_meta)
+
+        # Adiciona a pesquisa por ID direto no lote principal de queries
+        id_q = self.get_id_query(stream_meta)
+        if id_q and id_q not in self.query:
+            self.query.append(id_q)
 
         response = self.file_list("id, name, size, driveId, md5Checksum")
         self.len_response = 0
