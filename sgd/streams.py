@@ -21,9 +21,14 @@ class Streams:
         for item in gdrive.results:
             try:
                 self.item = item
-                self.parsed = parse_title(item.get("name"))
                 
-                if not hasattr(self.parsed, 'sortkeys'):
+                # Hardening: Previne quebra se o parse_title falhar ou retornar None
+                self.parsed = parse_title(str(item.get("name", "")))
+                if self.parsed is None:
+                    class DummyParsed: pass
+                    self.parsed = DummyParsed()
+                
+                if not hasattr(self.parsed, 'sortkeys') or not isinstance(getattr(self.parsed, 'sortkeys', None), dict):
                     self.parsed.sortkeys = {}
 
                 self.construct_stream()
@@ -179,7 +184,7 @@ class Streams:
         except:
             file_size = "0B"
 
-        # Codec (Atualizado com detecção nativa de AV1)
+        # Codec
         if any(x in name_upper for x in ["AV1", "AV01"]):
             codec = "AV1"
         elif any(x in name_upper for x in ["HEVC", "X265", "H265", "H.265"]):
@@ -189,25 +194,30 @@ class Streams:
         else:
             codec = self.parsed.sortkeys.get("codec", "CODEC?")
 
-        # HDR / DV
+        # HDR / DV - Ajustado para ativar emblemas Nuvio
         hdr_list = []
         if "HDR10+" in name_upper or "HDR+" in name_upper:
-            hdr_list.append("HDR+")
+            hdr_list.append("HDR10+")
+        elif "HDR10" in name_upper:
+            hdr_list.append("HDR10")
         elif "HDR" in name_upper:
             hdr_list.append("HDR")   
         if "DV" in name_upper or "DOLBY VISION" in name_upper:
             hdr_list.append("Dolby Vision")
         hdr_display = " ".join(hdr_list) if hdr_list else "SDR"
 
-        # Audio
+        # Audio - Ajustado para ativar emblemas Nuvio
         audio_codec = "Audio"
-        if "ATMOS" in name_upper: audio_codec = "Dolby Atmos"
+        if "ATMOS" in name_upper: 
+            audio_codec = "Dolby Atmos"
         elif any(x in name_upper for x in ["DDP", "DD+", "EAC3", "DIGITAL PLUS"]): 
-            audio_codec = "Dolby Digital Plus"
+            audio_codec = "Dolby Digital+"
         elif any(x in name_upper for x in ["DD", "AC3", "DOLBY DIGITAL"]): 
             audio_codec = "Dolby Digital"
-        elif "AAC" in name_upper: audio_codec = "AAC"
-        elif "DTS" in name_upper: audio_codec = "DTS"
+        elif "AAC" in name_upper: 
+            audio_codec = "AAC"
+        elif "DTS" in name_upper: 
+            audio_codec = "DTS"
 
         channels = ""
         channel_match = re.search(r'\b(7\.1|5\.1|2\.0)\b', file_name)
@@ -280,6 +290,9 @@ class Streams:
         elif "720" in res_lower: res_display = "720p (HD)"
         else: res_display = res_raw or "SD"
 
+        # Injetando o nome do arquivo para ser usado no best_res()
+        self.constructed["filename"] = self.item.get("name", "")
+
         self.constructed["url"] = self.get_url()
         self.constructed["name"] = f"[L1 GDrive] {res_display} | 🇧🇷"
         self.constructed["title"] = self.get_title()
@@ -289,15 +302,40 @@ class Streams:
 
     def best_res(self, item):
         try:
+            score = 0
+            
+            file_name = str(item.get("filename", "")).upper()
             sortkeys = item.get("sortkeys", {})
-            resolution = sortkeys.get("res")
-            res_map = {"hd": 720, "fhd": 1080, "uhd": 2160, "4k": 2160}
-            if resolution and isinstance(resolution, str):
-                sort_int = res_map.get(resolution.lower()) 
-                if not sort_int:
-                     nums = re.findall(r'\d+', resolution)
-                     sort_int = int(nums[0]) if nums else 1
-            else: sort_int = 1     
-        except: sort_int = 1
-        
-        return sort_int
+            if not isinstance(sortkeys, dict): 
+                sortkeys = {}
+
+            # 1. Resolução (Prioridade Máxima)
+            res_raw = str(sortkeys.get("res", "")).upper()
+            if "2160" in res_raw or "4K" in res_raw or "2160P" in file_name or "4K" in file_name: 
+                score += 1000000000
+            elif "1080" in res_raw or "FHD" in res_raw or "1080P" in file_name: 
+                score += 800000000
+            elif "720" in res_raw or "HD" in res_raw or "720P" in file_name: 
+                score += 600000000
+            else: 
+                score += 400000000
+
+            # 2. Fonte (Remux > BluRay > Web-DL)
+            if "REMUX" in file_name: score += 100000000
+            elif "BLURAY" in file_name: score += 80000000
+            elif "WEB-DL" in file_name or "WEBDL" in file_name: score += 60000000
+
+            # 3. HDR e Áudio (DV e Atmos no topo)
+            if "DV" in file_name or "DOLBY VISION" in file_name: score += 10000000
+            if "HDR10+" in file_name or "HDR+" in file_name: score += 8000000
+            
+            if "ATMOS" in file_name: score += 1000000
+            elif "DDP" in file_name or "DD+" in file_name: score += 800000
+
+            # 4. Idioma (Priorizar PT-BR / Dublado)
+            if any(x in file_name for x in ["DUBLADO", "PT-BR", "PTBR", "DUAL", "MULTI"]):
+                score += 1000
+
+            return score
+        except:
+            return 1
