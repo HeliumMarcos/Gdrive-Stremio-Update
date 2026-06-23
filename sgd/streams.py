@@ -18,50 +18,35 @@ class Streams:
             self.get_url = self.get_gapi_url
             self.acc_token = gdrive.get_acc_token()
 
-        for item in getattr(gdrive, 'results', []):
+        for item in gdrive.results:
             try:
                 self.item = item
-                if not isinstance(self.item, dict):
-                    continue
-                    
-                self.parsed = parse_title(str(self.item.get("name", "")))
+                self.parsed = parse_title(item.get("name"))
                 
-                # Hardening: Caso o parse_title retorne None ou falhe
-                if self.parsed is None:
-                    class DummyParsed: pass
-                    self.parsed = DummyParsed()
-                
-                if not hasattr(self.parsed, 'sortkeys') or not isinstance(getattr(self.parsed, 'sortkeys', None), dict):
+                if not hasattr(self.parsed, 'sortkeys'):
                     self.parsed.sortkeys = {}
 
                 self.construct_stream()
                 
                 # --- FILTRO INTELIGENTE ---
                 if self.is_semi_valid_title(self.constructed):
-                    strm_type = getattr(self.strm_meta, 'type', '')
-                    if strm_type == "movie":
+                    if self.strm_meta.type == "movie":
                         if self.is_valid_year(self.constructed):
                             self.results.append(self.constructed)
-                    elif strm_type == "series":
+                    elif self.strm_meta.type == "series":
                         # VERIFICAÇÃO CRUCIAL: Bloqueia vazamentos de outras temporadas/episódios
                         if self.is_valid_episode(self.constructed):
                             self.results.append(self.constructed)
-                    else:
-                        self.results.append(self.constructed)
                     
-            except Exception:
+            except Exception as e:
                 continue
 
-        # Ordenação baseada apenas nos dados contruídos, independente do self.item
         self.results.sort(key=self.best_res, reverse=True)
 
     def is_valid_year(self, movie):
         sortkeys = movie.get("sortkeys", {})
-        if not isinstance(sortkeys, dict): 
-            sortkeys = {}
-            
         file_year_str = str(sortkeys.get("year", "0"))
-        meta_year_str = str(getattr(self.strm_meta, 'year', '0'))
+        meta_year_str = str(self.strm_meta.year)
 
         if file_year_str == "0" or not file_year_str.isdigit():
             return True
@@ -70,7 +55,7 @@ class Streams:
             file_year = int(file_year_str)
             meta_year = int(meta_year_str)
             return abs(file_year - meta_year) <= 1
-        except Exception:
+        except:
             return True
 
     def is_valid_episode(self, item):
@@ -78,15 +63,12 @@ class Streams:
         Confere se a temporada e o episódio do arquivo batem exatamente com a requisição do Stremio.
         """
         sortkeys = item.get("sortkeys", {})
-        if not isinstance(sortkeys, dict): 
-            sortkeys = {}
-            
         file_se = sortkeys.get("se")
         file_ep = sortkeys.get("ep")
         
         # Fallback caso o PTN não pegue no campo principal (tentativa via regex)
         if file_se is None or file_ep is None:
-            file_name = str(self.item.get("name", "")).lower()
+            file_name = self.item.get("name", "").lower()
             match = re.search(r's(\d+)\s*e(\d+)', file_name)
             if match:
                 file_se, file_ep = match.groups()
@@ -94,19 +76,19 @@ class Streams:
                 return False
                 
         try:
-            return int(file_se) == int(getattr(self.strm_meta, 'se', -1)) and int(file_ep) == int(getattr(self.strm_meta, 'ep', -1))
-        except (ValueError, TypeError, AttributeError):
+            return int(file_se) == int(self.strm_meta.se) and int(file_ep) == int(self.strm_meta.ep)
+        except (ValueError, TypeError):
             return False
 
     def is_semi_valid_title(self, item):
         """
         Lógica Blindada com Filtro Anti-Spinoff e Proteção de Grupos de Lançamento BR
         """
-        file_name_raw = str(self.item.get("name", ""))
+        file_name_raw = self.item.get("name", "")
         
         # --- 0. BYPASS DA ID DO IMDB ---
         imdb_id = getattr(self.strm_meta, "id", None)
-        if imdb_id and str(imdb_id).lower() in file_name_raw.lower():
+        if imdb_id and imdb_id.lower() in file_name_raw.lower():
             return True
 
         def clean_str(s):
@@ -120,10 +102,7 @@ class Streams:
         file_clean = clean_str(file_name_raw)
         file_clean_filtered = filter_1_letter(file_clean)
         
-        sortkeys = item.get("sortkeys", {})
-        if not isinstance(sortkeys, dict): 
-            sortkeys = {}
-        ptn_title = sortkeys.get("title", "")
+        ptn_title = item.get("sortkeys", {}).get("title", "")
 
         STOP_WORDS = {
             "and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a", "an",
@@ -144,12 +123,9 @@ class Streams:
         }
 
         match_found = False
-        titles = getattr(self.strm_meta, 'titles', [])
-        if not titles:
-            return False
 
-        for title in titles:
-            title_clean = clean_str(str(title))
+        for title in self.strm_meta.titles:
+            title_clean = clean_str(title)
             title_clean_filtered = filter_1_letter(title_clean)
             
             if not title_clean_filtered:
@@ -195,13 +171,12 @@ class Streams:
         return match_found
 
     def get_title(self):
-        file_name = str(self.item.get("name", "Unknown"))
+        file_name = self.item.get("name", "Unknown")
         name_upper = file_name.upper()
         
         try:
-            file_size_raw = self.item.get("size", 0)
-            file_size = hr_size(int(file_size_raw)) if file_size_raw else "0B"
-        except Exception:
+            file_size = hr_size(int(self.item.get("size", 0)))
+        except:
             file_size = "0B"
 
         # Codec (Atualizado com detecção nativa de AV1)
@@ -212,11 +187,34 @@ class Streams:
         elif any(x in name_upper for x in ["AVC", "X264", "H264", "H.264"]):
             codec = "H.264"
         else:
-            sortkeys = getattr(self.parsed, 'sortkeys', {})
-            if isinstance(sortkeys, dict):
-                codec = sortkeys.get("codec", "CODEC?")
-            else:
-                codec = "CODEC?"
+            codec = self.parsed.sortkeys.get("codec", "CODEC?")
+
+        # HDR / DV
+        hdr_list = []
+        if "HDR10+" in name_upper or "HDR+" in name_upper:
+            hdr_list.append("HDR+")
+        elif "HDR" in name_upper:
+            hdr_list.append("HDR")   
+        if "DV" in name_upper or "DOLBY VISION" in name_upper:
+            hdr_list.append("Dolby Vision")
+        hdr_display = " ".join(hdr_list) if hdr_list else "SDR"
+
+        # Audio
+        audio_codec = "Audio"
+        if "ATMOS" in name_upper: audio_codec = "Dolby Atmos"
+        elif any(x in name_upper for x in ["DDP", "DD+", "EAC3", "DIGITAL PLUS"]): 
+            audio_codec = "Dolby Digital Plus"
+        elif any(x in name_upper for x in ["DD", "AC3", "DOLBY DIGITAL"]): 
+            audio_codec = "Dolby Digital"
+        elif "AAC" in name_upper: audio_codec = "AAC"
+        elif "DTS" in name_upper: audio_codec = "DTS"
+
+        channels = ""
+        channel_match = re.search(r'\b(7\.1|5\.1|2\.0)\b', file_name)
+        if not channel_match: channel_match = re.search(r'(7\.1|5\.1|2\.0)', file_name)
+        if channel_match: channels = f" - {channel_match.group(1)}"
+        
+        audio_final = f"{audio_codec}{channels}"
 
         # Quality
         quality = "WEB-DL"
@@ -225,15 +223,31 @@ class Streams:
         elif "HDTV" in name_upper: quality = "HDTV"
         elif "WEBRIP" in name_upper: quality = "WebRip"
 
-        # LAYOUT REFORMULADO
-        line1 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
-        line2 = f"📄 {file_name}"
+        # Nome Limpo
+        keys = getattr(self.parsed, 'sortkeys', {})
+        title_clean = keys.get("title", "Titulo")
+        
+        if self.strm_meta.type == "series":
+            try:
+                s = int(keys.get("season", keys.get("se", 0)))
+                e = int(keys.get("episode", keys.get("ep", 0)))
+                line3_text = f"{title_clean} - S{s:02}E{e:02}"
+            except:
+                line3_text = title_clean
+        else:
+            year = keys.get("year", "")
+            line3_text = f"{title_clean} {year}".strip()
 
-        return f"{line1}\n{line2}"
+        # LAYOUT
+        line1 = f"📺 {hdr_display} | 🔊 {audio_final}"
+        line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
+        line3 = f"📄 {line3_text}"
+
+        return f"{line1}\n{line2}\n{line3}"
 
     def get_proxy_url(self):
-        file_id = str(self.item.get("id", ""))
-        file_name = urllib.parse.quote(str(self.item.get("name", ""))) or "file_name.vid"
+        file_id = self.item.get("id")
+        file_name = urllib.parse.quote(self.item.get("name")) or "file_name.vid"
         if "behaviorHints" not in self.constructed:
              self.constructed["behaviorHints"] = {}
         self.constructed["behaviorHints"]["proxyHeaders"] = {
@@ -242,12 +256,12 @@ class Streams:
         return f"{self.proxy_url}/load/{file_id}/{file_name}"
 
     def get_gapi_url(self):
-        file_id = str(self.item.get("id", ""))
-        file_name = urllib.parse.quote(str(self.item.get("name", ""))) or "file_name.vid"
+        file_id = self.item.get("id")
+        file_name = urllib.parse.quote(self.item.get("name")) or "file_name.vid"
         if "behaviorHints" not in self.constructed:
              self.constructed["behaviorHints"] = {}
         self.constructed["behaviorHints"]["proxyHeaders"] = {
-            "request": {"Authorization": f"Bearer {getattr(self, 'acc_token', '')}"}
+            "request": {"Authorization": f"Bearer {self.acc_token}"}
         }
         return f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&file_name={file_name}"
 
@@ -257,116 +271,33 @@ class Streams:
         self.constructed["behaviorHints"]["notWebReady"] = True
         
         keys = getattr(self.parsed, 'sortkeys', {})
-        if not isinstance(keys, dict): 
-            keys = {}
-            
         res_raw = str(keys.get("res", ""))
         self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{res_raw}"
 
-        # MELHORIA 3: SALVAR O NOME ORIGINAL DO ARQUIVO PARA ORDENAÇÃO
-        file_name = str(self.item.get("name", ""))
-        self.constructed["filename"] = file_name
+        res_lower = res_raw.lower()
+        if "2160" in res_lower: res_display = "2160p (4k)"
+        elif "1080" in res_lower: res_display = "1080p (Full HD)"
+        elif "720" in res_lower: res_display = "720p (HD)"
+        else: res_display = res_raw or "SD"
 
         self.constructed["url"] = self.get_url()
-        
-        # MELHORIA 2: NOVO FORMATO DO STREAM NAME
-        title_clean = str(keys.get("title", "Titulo")).strip()
-        strm_type = getattr(self.strm_meta, 'type', '')
-        
-        if strm_type == "series":
-            try:
-                s = int(keys.get("season", keys.get("se", 0)))
-                e = int(keys.get("episode", keys.get("ep", 0)))
-                if s > 0 and e > 0:
-                    stream_name = f"📺 {title_clean} - T{s:02} E{e:02}"
-                else:
-                    stream_name = f"📺 {title_clean}"
-            except Exception:
-                stream_name = f"📺 {title_clean}"
-        else:
-            year = str(keys.get("year", "")).strip()
-            if year:
-                stream_name = f"📺 {title_clean} ({year})"
-            else:
-                stream_name = f"📺 {title_clean}"
-
-        self.constructed["name"] = stream_name
+        self.constructed["name"] = f"[L1 GDrive] {res_display} | 🇧🇷"
         self.constructed["title"] = self.get_title()
         self.constructed["sortkeys"] = keys
 
         return self.constructed
 
     def best_res(self, item):
-        """
-        Ranking inteligente baseado em score estrito.
-        Não depende de self.item para evitar bugs de ordenação.
-        """
-        score = 0
+        try:
+            sortkeys = item.get("sortkeys", {})
+            resolution = sortkeys.get("res")
+            res_map = {"hd": 720, "fhd": 1080, "uhd": 2160, "4k": 2160}
+            if resolution and isinstance(resolution, str):
+                sort_int = res_map.get(resolution.lower()) 
+                if not sort_int:
+                     nums = re.findall(r'\d+', resolution)
+                     sort_int = int(nums[0]) if nums else 1
+            else: sort_int = 1     
+        except: sort_int = 1
         
-        filename = item.get("filename", "")
-        if not isinstance(filename, str): 
-            filename = ""
-        name_upper = filename.upper()
-        
-        sortkeys = item.get("sortkeys", {})
-        if not isinstance(sortkeys, dict): 
-            sortkeys = {}
-
-        # 1. Resolução (Prioridade Máxima)
-        res_raw = str(sortkeys.get("res", "")).upper()
-        if "2160" in res_raw or "4K" in res_raw: 
-            score += 1000000000
-        elif "1080" in res_raw or "FHD" in res_raw: 
-            score += 800000000
-        elif "720" in res_raw or "HD" in res_raw: 
-            score += 600000000
-        else:
-            # Fallback regex no filename
-            if "2160P" in name_upper or "4K" in name_upper: 
-                score += 1000000000
-            elif "1080P" in name_upper: 
-                score += 800000000
-            elif "720P" in name_upper: 
-                score += 600000000
-            else: 
-                score += 400000000
-
-        # 2. Fonte
-        if "REMUX" in name_upper: score += 100000000
-        elif "BLURAY" in name_upper: score += 80000000
-        elif "WEB-DL" in name_upper or "WEBDL" in name_upper: score += 60000000
-        elif "WEBRIP" in name_upper: score += 40000000
-        elif "HDTV" in name_upper: score += 20000000
-
-        # 3. HDR
-        if "DV" in name_upper or "DOLBY VISION" in name_upper: score += 10000000
-        elif "HDR10+" in name_upper or "HDR+" in name_upper: score += 8000000
-        elif "HDR" in name_upper: score += 6000000
-
-        # 4. Áudio
-        if "ATMOS" in name_upper: score += 1000000
-        elif any(x in name_upper for x in ["DDP", "EAC3", "DD+"]): score += 800000
-        elif any(x in name_upper for x in ["DD", "AC3"]): score += 600000
-        elif "DTS-HD" in name_upper or "DTSHD" in name_upper: score += 400000
-        elif "DTS" in name_upper: score += 200000
-        elif "AAC" in name_upper: score += 100000
-
-        # 5. Codec
-        if any(x in name_upper for x in ["AV1", "AV01"]): score += 100000
-        elif any(x in name_upper for x in ["HEVC", "X265", "H265", "H.265"]): score += 80000
-        elif any(x in name_upper for x in ["AVC", "X264", "H264", "H.264"]): score += 60000
-
-        # 6. Canais
-        if "7.1" in name_upper: score += 10000
-        elif "5.1" in name_upper: score += 8000
-        elif "2.0" in name_upper: score += 6000
-
-        # 7. Idioma
-        if any(x in name_upper for x in ["DUBLADO", "PT-BR", "PTBR", "DUAL", "MULTI"]):
-            score += 1000
-
-        # 8. Origem do streaming
-        if any(x in name_upper for x in ["HMAX", "DSNP", "AMZN", "NF", "ATVP", "MAX"]):
-            score += 100
-
-        return score
+        return sort_int
