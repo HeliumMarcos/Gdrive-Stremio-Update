@@ -264,26 +264,34 @@ class Streams:
         elif "720" in res_lower: res_display = "720p"
         else: res_display = "SD"
 
-        # Nome Limpo
+        # Nome Limpo (Fallback via PTN)
         keys = getattr(self.parsed, 'sortkeys', {})
         if not isinstance(keys, dict): keys = {}
         title_clean = keys.get("title", "Titulo")
         
+        # Obtendo títulos e anos via metadados do Stremio (com fallback para o arquivo)
+        titulo_pt = getattr(self.strm_meta, 'name', title_clean)
+        titulo_original = getattr(self.strm_meta, 'originalName', getattr(self.strm_meta, 'original_title', title_clean))
+        ano_meta = getattr(self.strm_meta, 'year', keys.get("year", ""))
+
         if getattr(self.strm_meta, 'type', '') == "series":
             try:
                 s = int(keys.get("season", keys.get("se", 0)))
                 e = int(keys.get("episode", keys.get("ep", 0)))
-                line3_text = f"{title_clean} - S{s:02}E{e:02}"
+                sufixo = f"- S{s:02}E{e:02}"
             except:
-                line3_text = title_clean
+                sufixo = ""
+            
+            linha_pt = f"🇧🇷 {titulo_pt} {sufixo}".strip()
+            linha_orig = f"🌐 {titulo_original} {sufixo}".strip()
         else:
-            year = keys.get("year", "")
-            line3_text = f"{title_clean} {year}".strip()
+            linha_pt = f"🇧🇷 {titulo_pt} {ano_meta}".strip()
+            linha_orig = f"🌐 {titulo_original} {ano_meta}".strip()
 
         # LAYOUT: Construído para agradar o Regex do Nuvio
         line1 = f"📺 {res_display} {hdr_display} | 🔊 {audio_final}"
         line2 = f"{prefix} 🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
-        line3 = f"📄 {line3_text}"
+        line3 = f"{linha_pt}\n{linha_orig}"
 
         return f"{line1}\n{line2}\n{line3}"
 
@@ -362,4 +370,3 @@ class Streams:
             return score
         except:
             return 1
-
