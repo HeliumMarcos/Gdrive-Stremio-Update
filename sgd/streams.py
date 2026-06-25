@@ -308,8 +308,8 @@ class Streams:
             linha_orig = f"🌐 {titulo_original} {ano_meta}".strip()
 
         # LAYOUT: Construído para agradar o Regex do Nuvio
-        line1 = f"📺 {res_display} {hdr_display}   🔊 {audio_final}"
-        line2 = f"🎥 {quality}   🎞️ {codec}   💾 {file_size}"
+        line1 = f"💎 {res_display} {hdr_display}   🔊 {audio_final}"
+        line2 = f"💿 {quality}   ⚙️ {codec}   💾 {file_size}"
         line3 = f"{linha_pt}"
 
         return f"{line3}\n{line1}\n{line2}"
