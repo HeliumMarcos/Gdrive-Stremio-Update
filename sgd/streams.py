@@ -312,7 +312,7 @@ class Streams:
         line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
         line3 = f"{linha_pt}"
 
-        return f"{line1}\n{line2}\n{line3}"
+        return f"{line3}\n{line1}\n{line2}"
 
     def get_proxy_url(self):
         file_id = str(self.item.get("id", ""))
