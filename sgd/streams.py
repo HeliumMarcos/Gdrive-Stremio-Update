@@ -269,9 +269,28 @@ class Streams:
         if not isinstance(keys, dict): keys = {}
         title_clean = keys.get("title", "Titulo")
         
-        # Obtendo títulos e anos via metadados do Stremio (com fallback para o arquivo)
+        # 1. Título PT-BR vem do nome principal do metadado
         titulo_pt = getattr(self.strm_meta, 'name', title_clean)
-        titulo_original = getattr(self.strm_meta, 'originalName', getattr(self.strm_meta, 'original_title', title_clean))
+        
+        # 2. Tenta pegar o título original dos atributos diretos
+        titulo_original = getattr(self.strm_meta, 'originalName', getattr(self.strm_meta, 'original_title', ''))
+
+        # 3. Se não veio atributo direto (ou se veio igual ao PT), procura na lista de 'titles' alternativos
+        if not titulo_original or str(titulo_original).lower() == str(titulo_pt).lower():
+            titulos_alt = getattr(self.strm_meta, 'titles', [])
+            if isinstance(titulos_alt, list):
+                for t in titulos_alt:
+                    if t and str(t).lower() != str(titulo_pt).lower():
+                        titulo_original = str(t)
+                        break
+        
+        # 4. Se ainda estiver vazio ou igual, usa o título extraído do nome do arquivo
+        if not titulo_original or str(titulo_original).lower() == str(titulo_pt).lower():
+            if title_clean and str(title_clean).lower() != str(titulo_pt).lower():
+                titulo_original = title_clean
+            else:
+                titulo_original = titulo_pt # Último recurso: repete o título PT
+
         ano_meta = getattr(self.strm_meta, 'year', keys.get("year", ""))
 
         if getattr(self.strm_meta, 'type', '') == "series":
