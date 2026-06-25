@@ -301,16 +301,16 @@ class Streams:
             except:
                 sufixo = ""
             
-            linha_pt = f"🇧🇷 {titulo_pt} {sufixo}".strip()
+            linha_pt = f"🎬 {titulo_pt} {sufixo}".strip()
             linha_orig = f"🌐 {titulo_original} {sufixo}".strip()
         else:
-            linha_pt = f"🇧🇷 {titulo_pt} {ano_meta}".strip()
+            linha_pt = f"🎬 {titulo_pt} {ano_meta}".strip()
             linha_orig = f"🌐 {titulo_original} {ano_meta}".strip()
 
         # LAYOUT: Construído para agradar o Regex do Nuvio
         line1 = f"📺 {res_display} {hdr_display} | 🔊 {audio_final}"
-        line2 = f"{prefix} 🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
-        line3 = f"{linha_pt}\n{linha_orig}"
+        line2 = f"🎥 {quality} | 🎞️ {codec} | 💾 {file_size}"
+        line3 = f"{linha_pt}"
 
         return f"{line1}\n{line2}\n{line3}"
 
