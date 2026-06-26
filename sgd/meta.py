@@ -42,18 +42,15 @@ class IMDb:
                 f"Couldn't find metadata for {self.type} {self.id}!"
             )
             
-        # --- O PULO DO GATO: Cria versão Com Acento e Sem Acento ---
         cleaned_titles = []
         for t in self.titles:
             if t and isinstance(t, str) and len(t) > 1:
                 clean_t = t.lower().strip()
                 unaccented_t = ''.join(c for c in unicodedata.normalize('NFD', clean_t) if unicodedata.category(c) != 'Mn')
                 
-                # Adiciona o título original (Com acento)
                 if clean_t not in cleaned_titles:
                     cleaned_titles.append(clean_t)
                     
-                # Adiciona o título limpo (Sem acento) para cobrir todas as possibilidades
                 if unaccented_t not in cleaned_titles and unaccented_t != clean_t:
                     cleaned_titles.append(unaccented_t)
                     
@@ -199,7 +196,21 @@ class Meta(IMDb):
         self.type = stream_type
         self.stream_type = stream_type
 
+        # --- CONVERSÃO TMDB → IMDB ---
+        if self.id_split[0].lower() == "tmdb":
+            tmdb_numeric_id = self.id_split[1] if len(self.id_split) > 1 else None
+            if tmdb_numeric_id:
+                imdb_id = self._resolve_tmdb_to_imdb(stream_type, tmdb_numeric_id)
+                if imdb_id:
+                    print(f"TMDB→IMDB: tmdb:{tmdb_numeric_id} → {imdb_id}")
+                    # Substitui [tmdb, numeric_id, se, ep] por [imdb_id, se, ep]
+                    self.id_split = [imdb_id] + self.id_split[2:]
+                else:
+                    print(f"Aviso: Não foi possível converter tmdb:{tmdb_numeric_id} para IMDB ID")
+        # ---------------------------------
+
         self.id = self.id_split[0]
+
         if stream_type == "series":
             try:
                 self.ep = str(self.id_split[-1]).zfill(2)
@@ -217,3 +228,42 @@ class Meta(IMDb):
             cached.contents["ep"] = self.ep
             self.__dict__.update(cached.contents)
             self.fetch_dest = "CACHE"
+
+        print(f"METADATA ({self.fetch_dest}): {self.titles} | Ano: {self.year}")
+
+    @staticmethod
+    def _resolve_tmdb_to_imdb(stream_type, tmdb_numeric_id):
+        """
+        Converte TMDB ID numérico para IMDB ID (ex: tt1234567).
+        Usa cache local para evitar chamadas repetidas à API.
+        """
+        # Cache dedicado para mapeamento tmdb→imdb
+        cache = Json(f"tmdb_{tmdb_numeric_id}.json")
+        if cache.contents.get("imdb_id"):
+            print(f"TMDB→IMDB (cache): {cache.contents['imdb_id']}")
+            return cache.contents["imdb_id"]
+
+        tmdb_key = os.environ.get("TMDB_API_KEY")
+        if not tmdb_key:
+            print("Aviso: TMDB_API_KEY não configurada, não é possível converter ID TMDB.")
+            return None
+
+        try:
+            media_type = "movie" if stream_type == "movie" else "tv"
+            url = f"api.themoviedb.org/3/{media_type}/{tmdb_numeric_id}/external_ids?api_key={tmdb_key}"
+            resp = ut.req_wrapper(url)
+            if not resp:
+                return None
+
+            data = json.loads(resp)
+            imdb_id = data.get("imdb_id")
+
+            if imdb_id:
+                cache.contents["imdb_id"] = imdb_id
+                cache.save()
+
+            return imdb_id
+
+        except Exception as e:
+            print(f"Erro ao converter TMDB→IMDB: {e}")
+            return None
