@@ -8,7 +8,7 @@ from datetime import datetime
 
 MANIFEST = {
     "id": "shuvamjaswal.stremio.googledrive",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "name": "L1 GDrive",
     "description": "Este plugin busca conteúdo do Google Drive.",
     "logo": "https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/web-512dp/logo_drive_2020q4_color_1x_web_512dp.png",
@@ -32,7 +32,12 @@ def addon_manifest():
 def addon_stream(stream_type, stream_id):
 
     invalid_stream_type = stream_type not in MANIFEST["types"]
-    if invalid_stream_type or not stream_id[:2] == "tt":
+
+    # Aceita IDs que começam com "tt" (IMDB) ou "tmdb" (TMDB)
+    base_id = stream_id.split("%3A")[0].lower()
+    invalid_id = base_id[:2] != "tt" and base_id != "tmdb"
+
+    if invalid_stream_type or invalid_id:
         abort(404)
     try:
         resp = Response(
@@ -74,5 +79,4 @@ def get_streams(stream_type, stream_id):
         f"{stream_id} -> {gdrive.query}"
     )
 
-    # Convert results to json and send it, completing the response
     yield f"{dumps(streams.results)}}}"
