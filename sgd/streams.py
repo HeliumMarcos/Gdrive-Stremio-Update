@@ -200,6 +200,22 @@ class Streams:
             sortkeys = getattr(self.parsed, 'sortkeys', {})
             codec = sortkeys.get("codec", "CODEC?") if isinstance(sortkeys, dict) else "CODEC?"
 
+        # --- NOVO: Captura o serviço de Streaming ---
+        streaming = ""
+        if re.search(r'\bNF\b', name_upper): streaming = "NF"
+        elif re.search(r'\b(AMZN|AMAZON)\b', name_upper): streaming = "AMZN"
+        elif re.search(r'\bDSNP\b', name_upper): streaming = "DSNP"
+        elif re.search(r'\b(HMAX|MAX)\b', name_upper): streaming = "MAX"
+        elif re.search(r'\bATVP\b', name_upper): streaming = "ATVP"
+        elif re.search(r'\bPMTP\b', name_upper): streaming = "PMTP"
+        elif re.search(r'\bHULU\b', name_upper): streaming = "HULU"
+        elif re.search(r'\bPEAC\b', name_upper): streaming = "PEAC"
+        elif re.search(r'\bCR\b', name_upper): streaming = "CR"
+        elif re.search(r'\b(IT|ITUNES)\b', name_upper): streaming = "iT"
+        
+        # Formata para adicionar no layout apenas se encontrou algum streaming
+        stream_display = f"   📺 {streaming}" if streaming else ""
+
         # HDR / DV (Exatamente como o Nuvio pede nas Regex)
         hdr_list = []
         if "HDR10+" in name_upper or "HDR+" in name_upper:
@@ -307,8 +323,8 @@ class Streams:
             linha_pt = f"🎬 {titulo_pt} {ano_meta}".strip()
             linha_orig = f"🌐 {titulo_original} {ano_meta}".strip()
 
-        # LAYOUT: Construído para agradar o Regex do Nuvio
-        line1 = f"💎 {res_display} {hdr_display}   🔊 {audio_final}"
+        # LAYOUT: Construído com o streaming na primeira linha
+        line1 = f"💎 {res_display} {hdr_display}   🔊 {audio_final}{stream_display}".strip()
         line2 = f"💿 {quality}   ⚙️ {codec}   💾 {file_size}"
         line3 = f"{linha_pt}"
 
