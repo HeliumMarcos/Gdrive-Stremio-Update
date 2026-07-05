@@ -12,7 +12,7 @@ MANIFEST = {
     "name": "Stream Helium",
     "description": "Este plugin busca Filmes e Séries.",
 "favicon": "https://heliummarcos.com.br/addons/meu-addon/favicon.png",
-    "logo": "https://heliummarcos.com.br/addons/meu-addon/logo.png",
+    "logo": "https://heliummarcos.com.br/addons/meu-addon/gdrive.png",
     "background": "https://heliummarcos.com.br/addons/meu-addon/background.png",
     "resources": ["stream"],
     "types": ["movie", "series"],
