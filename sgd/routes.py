@@ -8,10 +8,10 @@ from datetime import datetime
 
 MANIFEST = {
     "id": "shuvamjaswal.stremio.googledrive",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "name": "L1 GDrive",
     "description": "Este plugin busca conteúdo do Google Drive.",
-    "logo": "https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/web-512dp/logo_drive_2020q4_color_1x_web_512dp.png",
+    "logo": "https://heliummarcos.com.br/addons/meu-addon/gdrive.png",
     "resources": ["stream"],
     "types": ["movie", "series"],
     "catalogs": [],
