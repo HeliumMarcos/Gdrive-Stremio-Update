@@ -7,9 +7,9 @@ from datetime import datetime
 
 
 MANIFEST = {
-    "id": "shuvamjaswal.stremio.googledrive",
-    "version": "1.1.2",
-    "name": "L1 GDrive",
+    "id": "streamhelium.stremio.googledrive",
+    "version": "1.1.3",
+    "name": "Stream Helium",
     "description": "Este plugin busca conteúdo do Google Drive.",
     "logo": "https://heliummarcos.com.br/addons/meu-addon/gdrive.png",
     "resources": ["stream"],
