@@ -361,14 +361,14 @@ class Streams:
         self.constructed["behaviorHints"]["bingeGroup"] = f"gdrive-{res_raw}"
 
         res_lower = res_raw.lower()
-        if "2160" in res_lower: res_nome_topo = "2160p (4k)"
-        elif "1080" in res_lower: res_nome_topo = "1080p (Full HD)"
-        elif "720" in res_lower: res_nome_topo = "720p (HD)"
-        else: res_nome_topo = res_raw or "SD"
+        if "2160" in res_lower: res_nome_topo = "[4k]"
+        elif "1080" in res_lower: res_nome_topo = "[Full HD]"
+        elif "720" in res_lower: res_nome_topo = "[HD]"
+        else: res_nome_topo = res_raw or "[SD]"
 
         self.constructed["filename"] = str(self.item.get("name", ""))
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = f"▶️ Stream Helium | {res_nome_topo} | 🇧🇷"
+        self.constructed["name"] = f"▶️ Stream Helium {res_nome_topo} 🇧🇷"
         self.constructed["title"] = self.get_title(res_raw)
         self.constructed["sortkeys"] = keys
 
