@@ -368,7 +368,7 @@ class Streams:
 
         self.constructed["filename"] = str(self.item.get("name", ""))
         self.constructed["url"] = self.get_url()
-        self.constructed["name"] = f"[Stream Helium] {res_nome_topo} | 🇧🇷"
+        self.constructed["name"] = f"Stream Helium | {res_nome_topo} | 🇧🇷"
         self.constructed["title"] = self.get_title(res_raw)
         self.constructed["sortkeys"] = keys
 
