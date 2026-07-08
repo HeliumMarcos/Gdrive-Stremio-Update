@@ -171,7 +171,8 @@ class Streams:
             if is_match_candidate:
                 if ptn_title:
                     ptn_clean = clean_str(ptn_title)
-                    ptn_strong = [w for w in ptn_clean.split() if w not in STOP_WORDS]
+                    ptn_filtered = filter_1_letter(ptn_clean)
+                    ptn_strong = [w for w in ptn_filtered.split() if w not in STOP_WORDS]
                     meaningful_extras = [w for w in ptn_strong if w not in strong_words and w not in ALLOWED_EXTRAS]
                     
                     if len(meaningful_extras) > 0:
