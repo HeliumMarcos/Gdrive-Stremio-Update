@@ -2,7 +2,7 @@ from sgd import app, gdrive
 from sgd.meta import MetadataNotFound, Meta
 from sgd.streams import Streams
 from json import dumps
-from flask import jsonify, abort, Response, redirect
+from flask import jsonify, abort, Response, redirect, render_template
 from datetime import datetime
 
 
@@ -22,7 +22,7 @@ MANIFEST = {
 
 @app.route("/")
 def init():
-    return "O addon está ativo."
+    return render_template("index.html")
 
 
 @app.route("/favicon.png")
