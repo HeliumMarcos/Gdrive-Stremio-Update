@@ -321,8 +321,9 @@ class Streams:
             linha_pt = f"🎬 {titulo_pt} {sufixo}".strip()
             linha_orig = f"🌐 {titulo_original} {sufixo}".strip()
         else:
-            linha_pt = f"🎬 {titulo_pt} {ano_meta}".strip()
-            linha_orig = f"🌐 {titulo_original} {ano_meta}".strip()
+            ano_str = f" - ({ano_meta})" if ano_meta else ""
+            linha_pt = f"🎬 {titulo_pt}{ano_str}".strip()
+            linha_orig = f"🌐 {titulo_original}{ano_str}".strip()
 
         # LAYOUT: Construído com o streaming na primeira linha
         line1 = f"💎 {res_display} {hdr_display}   🔊 {audio_final}{stream_display}".strip()
