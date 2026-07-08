@@ -2,7 +2,7 @@ from sgd import app, gdrive
 from sgd.meta import MetadataNotFound, Meta
 from sgd.streams import Streams
 from json import dumps
-from flask import jsonify, abort, Response
+from flask import jsonify, abort, Response, redirect
 from datetime import datetime
 
 
@@ -26,8 +26,9 @@ def init():
 
 
 @app.route("/favicon.png")
+@app.route("/favicon.ico")
 def favicon():
-    return "", 204
+    return redirect(MANIFEST["favicon"], code=302)
 
 
 @app.route("/manifest.json")
