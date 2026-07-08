@@ -25,6 +25,11 @@ def init():
     return "O addon está ativo."
 
 
+@app.route("/favicon.png")
+def favicon():
+    return "", 204
+
+
 @app.route("/manifest.json")
 def addon_manifest():
     return common_headers(jsonify(MANIFEST))
