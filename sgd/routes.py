@@ -8,12 +8,12 @@ from datetime import datetime
 
 MANIFEST = {
     "id": "streamhelium.stremio.googledrive",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "name": "Stream Helium",
     "description": "Este plugin busca Filmes e Séries.",
-"favicon": "https://heliummarcos.com.br/addons/meu-addon/favicon.png",
-    "logo": "https://heliummarcos.com.br/addons/meu-addon/gdrive.png",
-    "background": "https://heliummarcos.com.br/addons/meu-addon/background.png",
+"favicon": "https://catalogo.heliummarcos.com.br/addon/favicon.png",
+    "logo": "https://catalogo.heliummarcos.com.br/addon/gdrive.png",
+    "background": "https://catalogo.heliummarcos.com.br/addon/background.png",
     "resources": ["stream"],
     "types": ["movie", "series"],
     "catalogs": [],
