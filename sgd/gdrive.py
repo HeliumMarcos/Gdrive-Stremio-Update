@@ -1,8 +1,12 @@
+import logging
 import requests
 from datetime import datetime, timedelta
 from sgd.cache import Pickle, Json
+from sgd.utils import STOP_WORDS
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleDrive:
@@ -20,13 +24,6 @@ class GoogleDrive:
         out = ""
         # FIX: Forçamos buscar sempre no nome para evitar vazamento de pastas de outras temporadas
         get_method = lambda _: method if method else "name"
-
-        STOP_WORDS = {
-            "the", "of", "and", "a", "an", "to", "in", "for", "on", "at", 
-            "by", "with", "from", "as", "is", "it",
-            "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
-            "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
-        }
 
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         cleaned_string = " ".join(cleaned_string.split())
@@ -55,9 +52,8 @@ class GoogleDrive:
 
     def get_query(self, sm):
         out = []
-        
-        print(f"--- DEBUG ---")
-        print(f"TITULOS RECEBIDOS: {sm.titles}")
+
+        logger.debug("Titles received: %s", sm.titles)
 
         if sm.stream_type == "series":
             # Mudado o método para 'name' para garantir que procure as tags S01E01 no arquivo de vídeo
@@ -118,16 +114,16 @@ class GoogleDrive:
             if response:
                 output.extend(response.get("files", []))
             if exception:
-                print(f"Erro GDrive: {exception}")
+                logger.warning("Google Drive query failed: %s", exception)
 
         output = []
         if self.query:
             files = self.drive_instance.files()
             batch = self.drive_instance.new_batch_http_request()
-            
+
             for q in self.query:
-                print(f"BUSCA SMART: {q}") 
-                
+                logger.debug("Drive query: %s", q)
+
                 batch_inst = files.list(
                     q=f"({q}) and trashed=false and mimeType contains 'video/'",
                     fields=f"files({file_fields})",
@@ -140,8 +136,8 @@ class GoogleDrive:
             try:
                 batch.execute()
             except Exception as e:
-                print(f"Erro Batch: {e}")
-                
+                logger.warning("Google Drive batch request failed: %s", e)
+
             return output
         return output
 
@@ -165,8 +161,9 @@ class GoogleDrive:
 
         try:
             batch.execute()
-        except: pass
-            
+        except Exception as e:
+            logger.warning("Failed to fetch drive names: %s", e)
+
         self.drive_names.save()
         return self.drive_names.contents
 
@@ -216,7 +213,8 @@ class GoogleDrive:
             try:
                 if isinstance(expires, str): expires = datetime.fromisoformat(expires)
                 is_expired = expires <= datetime.now()
-            except: pass
+            except (TypeError, ValueError) as e:
+                logger.warning("Couldn't parse cached token expiry (%r): %s", expires, e)
 
         if is_expired:
             body = {
@@ -232,6 +230,9 @@ class GoogleDrive:
                     oauth_resp["expires_in"] = timedelta(seconds=oauth_resp["expires_in"]) + datetime.now()
                     self.acc_token.contents = oauth_resp
                     self.acc_token.save()
-            except: pass
+                else:
+                    logger.error("OAuth token refresh failed: %s", oauth_resp)
+            except requests.exceptions.RequestException as e:
+                logger.error("OAuth token refresh request failed: %s", e)
 
         return self.acc_token.contents.get("access_token")

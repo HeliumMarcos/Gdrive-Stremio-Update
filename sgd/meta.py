@@ -1,11 +1,20 @@
 import os
 import json
+import logging
 import lxml
 import cchardet
-import unicodedata
 import sgd.utils as ut
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from sgd.cache import Json
+
+logger = logging.getLogger(__name__)
+
+# How long a resolved title/year lookup is trusted before being refreshed.
+# Without a TTL, a bad/partial result cached once (e.g. a flaky upstream
+# response) would stick forever.
+METADATA_CACHE_TTL = timedelta(days=7)
+
 
 class MetadataNotFound(Exception):
     pass
@@ -34,7 +43,7 @@ class IMDb:
             if self.fetch_dest == "None" and self.titles:
                 self.fetch_dest = "IMDB_HTML"
         except Exception as e:
-            print(f"Aviso: Falha ao ler HTML do IMDb ({e})")
+            logger.warning("Failed to read IMDb HTML page for %s: %s", self.id, e)
 
         if not self.titles:
             self.fetch_dest = "NULL"
@@ -46,8 +55,8 @@ class IMDb:
         for t in self.titles:
             if t and isinstance(t, str) and len(t) > 1:
                 clean_t = t.lower().strip()
-                unaccented_t = ''.join(c for c in unicodedata.normalize('NFD', clean_t) if unicodedata.category(c) != 'Mn')
-                
+                unaccented_t = ut.strip_accents(clean_t)
+
                 if clean_t not in cleaned_titles:
                     cleaned_titles.append(clean_t)
                     
@@ -93,8 +102,9 @@ class IMDb:
                 if pt_title: self.titles.append(ut.sanitize(pt_title))
                 
             return True
-            
+
         except Exception as e:
+            logger.warning("TMDB lookup failed for %s: %s", self.id, e)
             return False
 
     def get_meta_from_imdb_html(self):
@@ -129,7 +139,8 @@ class IMDb:
                             span_text = h3_itemprop.find("span").text.strip()
                             years = list(filter(ut.is_year, ut.num_extract(span_text)))
                             self.year = min(years) if years else None
-                        except: pass
+                        except AttributeError:
+                            pass
 
             if table:
                 table_rows = table.find_all("tr")
@@ -154,7 +165,8 @@ class IMDb:
                 self.titles += list(titles)[:limit]
 
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to parse IMDb HTML page for %s: %s", self.id, e)
             return False
 
     def get_meta_from_imdb_sg(self):
@@ -163,7 +175,8 @@ class IMDb:
             if meta:
                 self.set_meta(meta[0], year="y", title="l")
                 return True
-        except: pass
+        except Exception as e:
+            logger.warning("IMDb suggest lookup failed for %s: %s", self.id, e)
         return False
 
     def get_meta_from_cinemeta(self):
@@ -172,7 +185,8 @@ class IMDb:
             if meta:
                 self.set_meta(meta)
                 return True
-        except: pass
+        except Exception as e:
+            logger.warning("Cinemeta lookup failed for %s: %s", self.id, e)
         return False
 
     def set_meta(self, meta, year="year", title="name"):
@@ -192,7 +206,7 @@ class Meta(IMDb):
         self.ep = 0
         self.se = 0
 
-        self.id_split = stream_id.split("%3A")
+        self.id_split = ut.split_stream_id(stream_id)
         self.type = stream_type
         self.stream_type = stream_type
 
@@ -202,11 +216,11 @@ class Meta(IMDb):
             if tmdb_numeric_id:
                 imdb_id = self._resolve_tmdb_to_imdb(stream_type, tmdb_numeric_id)
                 if imdb_id:
-                    print(f"TMDB→IMDB: tmdb:{tmdb_numeric_id} → {imdb_id}")
+                    logger.info("TMDB->IMDB: tmdb:%s -> %s", tmdb_numeric_id, imdb_id)
                     # Substitui [tmdb, numeric_id, se, ep] por [imdb_id, se, ep]
                     self.id_split = [imdb_id] + self.id_split[2:]
                 else:
-                    print(f"Aviso: Não foi possível converter tmdb:{tmdb_numeric_id} para IMDB ID")
+                    logger.warning("Couldn't convert tmdb:%s to an IMDB id", tmdb_numeric_id)
         # ---------------------------------
 
         self.id = self.id_split[0]
@@ -215,13 +229,22 @@ class Meta(IMDb):
             try:
                 self.ep = str(self.id_split[-1]).zfill(2)
                 self.se = str(self.id_split[-2]).zfill(2)
-            except:
+            except IndexError:
                 pass
 
         cached = Json(f"{self.id}.json")
-        if not cached.contents:
+        cached_at = cached.contents.get("cached_at")
+        is_stale = True
+        if cached_at:
+            try:
+                is_stale = datetime.fromisoformat(cached_at) + METADATA_CACHE_TTL <= datetime.now()
+            except ValueError:
+                is_stale = True
+
+        if not cached.contents or is_stale:
             IMDb.__init__(self)
             cached.contents.update(self.__dict__)
+            cached.contents["cached_at"] = datetime.now().isoformat()
             cached.save()
         else:
             cached.contents["se"] = self.se
@@ -229,23 +252,18 @@ class Meta(IMDb):
             self.__dict__.update(cached.contents)
             self.fetch_dest = "CACHE"
 
-        print(f"METADATA ({self.fetch_dest}): {self.titles} | Ano: {self.year}")
+        logger.info("METADATA (%s): %s | Year: %s", self.fetch_dest, self.titles, self.year)
 
     @staticmethod
     def _resolve_tmdb_to_imdb(stream_type, tmdb_numeric_id):
-        """
-        Converte TMDB ID numérico para IMDB ID (ex: tt1234567).
-        Usa cache local para evitar chamadas repetidas à API.
-        """
-        # Cache dedicado para mapeamento tmdb→imdb
+        """Convert a numeric TMDB id to an IMDB id (e.g. tt1234567), caching the mapping."""
         cache = Json(f"tmdb_{tmdb_numeric_id}.json")
         if cache.contents.get("imdb_id"):
-            print(f"TMDB→IMDB (cache): {cache.contents['imdb_id']}")
             return cache.contents["imdb_id"]
 
         tmdb_key = os.environ.get("TMDB_API_KEY")
         if not tmdb_key:
-            print("Aviso: TMDB_API_KEY não configurada, não é possível converter ID TMDB.")
+            logger.warning("TMDB_API_KEY is not set; can't convert TMDB id %s", tmdb_numeric_id)
             return None
 
         try:
@@ -265,5 +283,5 @@ class Meta(IMDb):
             return imdb_id
 
         except Exception as e:
-            print(f"Erro ao converter TMDB→IMDB: {e}")
+            logger.warning("Failed to convert TMDB id %s to IMDB: %s", tmdb_numeric_id, e)
             return None

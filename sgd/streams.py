@@ -1,9 +1,11 @@
 import os
+import logging
 import urllib
 import re
-import unicodedata
 from sgd.ptn import parse_title
-from sgd.utils import sanitize, hr_size
+from sgd.utils import hr_size, strip_accents, STOP_WORDS
+
+logger = logging.getLogger(__name__)
 
 
 class Streams:
@@ -50,6 +52,7 @@ class Streams:
                         self.results.append(self.constructed)
                     
             except Exception as e:
+                logger.warning("Failed to process drive item %r: %s", item.get("name"), e)
                 continue
 
         # Ordenação inteligente
@@ -70,7 +73,7 @@ class Streams:
             file_year = int(file_year_str)
             meta_year = int(meta_year_str)
             return abs(file_year - meta_year) <= 1
-        except:
+        except (TypeError, ValueError):
             return True
 
     def is_valid_episode(self, item):
@@ -102,27 +105,21 @@ class Streams:
             return True
 
         def clean_str(s):
-            s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+            s = strip_accents(s)
             s = re.sub(r"[^a-zA-Z0-9]", " ", s).lower()
             return " ".join(s.split())
-            
+
         def filter_1_letter(s):
             return " ".join([w for w in s.split() if len(w) > 1 or w.isdigit()])
 
         file_clean = clean_str(file_name_raw)
         file_clean_filtered = filter_1_letter(file_clean)
-        
+
         sortkeys = item.get("sortkeys", {})
-        if not isinstance(sortkeys, dict): 
+        if not isinstance(sortkeys, dict):
             sortkeys = {}
         ptn_title = sortkeys.get("title", "")
 
-        STOP_WORDS = {
-            "and", "of", "to", "in", "for", "on", "at", "by", "with", "the", "a", "an",
-            "o", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", 
-            "em", "no", "na", "nos", "nas", "por", "para", "com", "se", "que", "ou"
-        }
-        
         ALLOWED_EXTRAS = {
             "filme", "movie", "series", "serie", "temporada", "season", 
             "pt", "br", "dublado", "legendado", "dual", "audio", "remastered", 
@@ -315,7 +312,7 @@ class Streams:
                 s = int(keys.get("season", keys.get("se", 0)))
                 e = int(keys.get("episode", keys.get("ep", 0)))
                 sufixo = f"– S{s:02}E{e:02}"
-            except:
+            except (TypeError, ValueError):
                 sufixo = ""
             
             linha_pt = f"🎬 {titulo_pt} {sufixo}".strip()
@@ -405,5 +402,6 @@ class Streams:
             if any(x in file_name for x in ["DUBLADO", "PT-BR", "PTBR", "DUAL", "MULTI"]): score += 1000
 
             return score
-        except:
+        except Exception as e:
+            logger.warning("Failed to score item: %s", e)
             return 1

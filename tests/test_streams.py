@@ -1,0 +1,133 @@
+from types import SimpleNamespace
+
+from sgd.streams import Streams
+
+
+class FakeGDrive:
+    """Minimal stand-in for GoogleDrive: no results, no real Drive/OAuth calls."""
+
+    results = []
+
+    def get_acc_token(self):
+        return "fake-access-token"
+
+
+def make_streams(**meta_kwargs):
+    meta = SimpleNamespace(
+        type="movie",
+        stream_type="movie",
+        titles=["Pirates of the Goolag"],
+        year="2016",
+        id="tt1234567",
+        se=0,
+        ep=0,
+    )
+    meta.__dict__.update(meta_kwargs)
+    return Streams(FakeGDrive(), meta)
+
+
+# --- is_semi_valid_title -----------------------------------------------
+
+def test_title_matches_filename():
+    s = make_streams()
+    s.item = {"name": "Pirates.of.the.Goolag.2016.1080p.WEB-DL.mkv"}
+    assert s.is_semi_valid_title({"sortkeys": {"title": "Pirates of the Goolag"}})
+
+
+def test_title_does_not_match_unrelated_filename():
+    s = make_streams()
+    s.item = {"name": "Totally.Different.Movie.2016.mkv"}
+    assert not s.is_semi_valid_title({"sortkeys": {"title": "Totally Different Movie"}})
+
+
+def test_imdb_id_in_filename_always_matches():
+    s = make_streams(id="tt9999999")
+    s.item = {"name": "video_tt9999999_source.mkv"}
+    assert s.is_semi_valid_title({"sortkeys": {}})
+
+
+def test_rejects_when_parsed_title_has_unexplained_extra_words():
+    # PTN picked up extra meaningful words in the title field that aren't
+    # part of the searched title and aren't a known release-tag word -
+    # this is the "leaked other content" guard.
+    s = make_streams()
+    s.item = {"name": "Pirates.of.the.Goolag.2016.BONUSCONTENT.mkv"}
+    matched = s.is_semi_valid_title(
+        {"sortkeys": {"title": "Pirates of the Goolag BONUSCONTENT"}}
+    )
+    assert not matched
+
+
+def test_no_titles_never_matches():
+    s = make_streams(titles=[])
+    s.item = {"name": "Pirates.of.the.Goolag.2016.mkv"}
+    assert not s.is_semi_valid_title({"sortkeys": {}})
+
+
+# --- is_valid_year -------------------------------------------------------
+
+def test_valid_year_exact_match():
+    s = make_streams(year="2016")
+    assert s.is_valid_year({"sortkeys": {"year": "2016"}})
+
+
+def test_valid_year_off_by_one_is_tolerated():
+    s = make_streams(year="2016")
+    assert s.is_valid_year({"sortkeys": {"year": "2017"}})
+
+
+def test_valid_year_rejects_far_mismatch():
+    s = make_streams(year="2016")
+    assert not s.is_valid_year({"sortkeys": {"year": "1999"}})
+
+
+def test_valid_year_missing_file_year_defaults_to_valid():
+    s = make_streams(year="2016")
+    assert s.is_valid_year({"sortkeys": {}})
+
+
+# --- is_valid_episode ------------------------------------------------------
+
+def test_valid_episode_matches_sortkeys():
+    s = make_streams(stream_type="series", se=1, ep=2)
+    s.item = {"name": "irrelevant.mkv"}
+    assert s.is_valid_episode({"sortkeys": {"se": 1, "ep": 2}})
+
+
+def test_valid_episode_rejects_other_season():
+    s = make_streams(stream_type="series", se=1, ep=2)
+    s.item = {"name": "irrelevant.mkv"}
+    assert not s.is_valid_episode({"sortkeys": {"se": 2, "ep": 2}})
+
+
+def test_valid_episode_falls_back_to_filename_regex():
+    s = make_streams(stream_type="series", se=1, ep=2)
+    s.item = {"name": "Show.Name.S01E02.mkv"}
+    assert s.is_valid_episode({"sortkeys": {}})
+
+
+def test_valid_episode_no_episode_info_anywhere_is_invalid():
+    s = make_streams(stream_type="series", se=1, ep=2)
+    s.item = {"name": "Show.Name.mkv"}
+    assert not s.is_valid_episode({"sortkeys": {}})
+
+
+# --- best_res --------------------------------------------------------------
+
+def test_best_res_prefers_higher_resolution():
+    s = make_streams()
+    low = {"filename": "Movie.720p.WEB-DL.mkv", "sortkeys": {"res": "720p"}}
+    high = {"filename": "Movie.2160p.WEB-DL.mkv", "sortkeys": {"res": "2160p"}}
+    assert s.best_res(high) > s.best_res(low)
+
+
+def test_best_res_prefers_remux_over_webdl_at_same_resolution():
+    s = make_streams()
+    webdl = {"filename": "Movie.1080p.WEB-DL.mkv", "sortkeys": {"res": "1080p"}}
+    remux = {"filename": "Movie.1080p.BluRay.REMUX.mkv", "sortkeys": {"res": "1080p"}}
+    assert s.best_res(remux) > s.best_res(webdl)
+
+
+def test_best_res_never_raises_on_malformed_item():
+    s = make_streams()
+    assert s.best_res(None) == 1
