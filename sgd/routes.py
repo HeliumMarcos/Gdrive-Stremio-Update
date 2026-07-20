@@ -1,9 +1,35 @@
+import re
+import logging
 from sgd import app, gdrive
 from sgd.meta import MetadataNotFound, Meta
 from sgd.streams import Streams
+from sgd.utils import split_stream_id
 from json import dumps
 from flask import jsonify, abort, Response, redirect
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+# tt1234567 for IMDb ids, or tmdb:1234 for TMDB ids, optionally followed by
+# :<season>:<episode> for series.
+VALID_IMDB_ID = re.compile(r"^tt\d{5,10}$", re.IGNORECASE)
+VALID_SEASON_EPISODE = re.compile(r"^\d+$")
+
+
+def is_valid_stream_id(stream_id):
+    parts = split_stream_id(stream_id)
+    base_id = parts[0].lower()
+
+    if base_id == "tmdb":
+        if len(parts) < 2 or not parts[1].isdigit():
+            return False
+        extra = parts[2:]
+    elif VALID_IMDB_ID.match(base_id):
+        extra = parts[1:]
+    else:
+        return False
+
+    return len(extra) <= 2 and all(VALID_SEASON_EPISODE.match(p) for p in extra)
 
 
 MANIFEST = {
@@ -40,10 +66,7 @@ def addon_manifest():
 def addon_stream(stream_type, stream_id):
 
     invalid_stream_type = stream_type not in MANIFEST["types"]
-
-    # Aceita IDs que começam com "tt" (IMDB) ou "tmdb" (TMDB)
-    base_id = stream_id.split("%3A")[0].lower()
-    invalid_id = base_id[:2] != "tt" and base_id != "tmdb"
+    invalid_id = not is_valid_stream_id(stream_id)
 
     if invalid_stream_type or invalid_id:
         abort(404)
@@ -54,7 +77,7 @@ def addon_stream(stream_type, stream_id):
         )
         return common_headers(resp)
     except MetadataNotFound as e:
-        print(f"ERROR: {e}")
+        logger.info("%s", e)
         abort(404)
 
 
@@ -66,8 +89,8 @@ def common_headers(resp_obj):
 
 
 def get_streams(stream_type, stream_id):
-    # Janky way to extend 30 second timeout:
-    # https://devcenter.heroku.com/articles/request-timeout#long-polling-and-streaming-responses
+    # Stream the response body so the connection stays open (and doesn't hit
+    # a request timeout) while we search Drive and score the results.
     yield '{"streams":'
 
     start_time = datetime.now()
@@ -75,16 +98,15 @@ def get_streams(stream_type, stream_id):
 
     stream_meta = Meta(stream_type, stream_id)
     gdrive.search(stream_meta)
-    print(
-        f"Got {len(gdrive.results)}/{gdrive.len_response} unique "
-        f"results from gdrive after deduping in {time_taken(start_time)}."
-        " Processando resultados..."
+    logger.info(
+        "Got %d/%d unique results from gdrive after deduping in %s. Scoring results...",
+        len(gdrive.results), gdrive.len_response, time_taken(start_time),
     )
     streams = Streams(gdrive, stream_meta)
-    print(
-        f"Fetched {len(streams.results)}/{len(gdrive.results)} "
-        f"valid stream(s) in {time_taken(start_time)} for "
-        f"{stream_id} -> {gdrive.query}"
+    logger.info(
+        "Fetched %d/%d valid stream(s) in %s for %s -> %s",
+        len(streams.results), len(gdrive.results), time_taken(start_time),
+        stream_id, gdrive.query,
     )
 
     yield f"{dumps(streams.results)}}}"

@@ -43,6 +43,27 @@ This is an updated version of https://github.com/ssnjr2002/stremio-gdrive
 27. select top most entry and press menu button(vertical three dots) and tap redeploy uncheck build cache option
 28. press on visit button.
 
+### Optional environment variables
+
+Besides `TOKEN` (required), the addon reads a couple of optional environment
+variables that change its behavior:
+
+* `TMDB_API_KEY` — a [TMDB](https://www.themoviedb.org/settings/api) API key.
+  Without it, the addon can't resolve `tmdb:`-prefixed stream ids (Stremio
+  sometimes asks for streams by TMDB id instead of IMDb id) and TMDB is
+  skipped as a metadata source, falling back to Cinemeta/IMDb scraping only.
+* `CF_PROXY_URL` — the base URL of a deployed Cloudflare Worker proxy (see
+  `cf_proxy.js`). When set, playback URLs are served through the proxy
+  instead of directly through the Google Drive API. Useful if you want to
+  avoid exposing your own OAuth access token to the Stremio client.
+
+### Customizing the addon manifest
+
+The addon name, favicon, logo and background image are hardcoded in
+`sgd/routes.py` (`MANIFEST`) and point at the original author's domain. If
+you deploy your own instance, you'll likely want to edit those values (and
+host your own icons) instead of depending on someone else's server.
+
 ### Installing the addon to your Stremio account:
 
 1. Get the url of the vercel app you deployed. Add `/manifest.json` to the end. For example if my app url is `https://<your app url.vercel.app/' add `/manifest.json` to the end to get: `https://<your app url.vercel.app/manifest.json`. Copy this url.
