@@ -104,24 +104,33 @@ class Streams:
         if imdb_id and str(imdb_id).lower() in file_name_raw.lower():
             return True
 
-        def clean_str(s, merge_apostrophes=False):
-            # An apostrophe plays two different roles depending on how a
-            # release names things: as a word separator some renamers use
-            # in place of a space ("Dia'D" for "Dia D"), or as part of a
-            # contraction/possessive that a filename may just drop entirely
-            # ("Margo's Got Money Troubles" -> "Margos.Got.Money.Troubles").
-            # There's no way to tell which one applies without trying both:
-            # merge_apostrophes=False treats it as a separator (space),
-            # merge_apostrophes=True deletes it so the surrounding letters
-            # fuse into one word.
-            if merge_apostrophes:
-                s = s.replace("'", "")
+        def clean_str(s):
             s = strip_accents(s)
             s = re.sub(r"[^a-zA-Z0-9]", " ", s).lower()
             return " ".join(s.split())
 
-        def filter_1_letter(s):
-            return " ".join([w for w in s.split() if len(w) > 1 or w.isdigit()])
+        # A lone letter left over after an apostrophe becomes a space is
+        # ambiguous: it can be a distinctive word on its own ("Dia D", the
+        # "D" in D-Day) or a contraction/possessive remnant ("Margo's" ->
+        # "margo s") that a filename may instead fuse/drop entirely
+        # ("Margos"). By the time a title reaches here it's already gone
+        # through this app's own sanitize() (meta.py), which turns "'" into
+        # a space the same way, so there's no "'" character left to tell
+        # the two apart. Try it both ways: drop the lone letter (today's
+        # behavior) or fuse it back onto the previous word, and accept
+        # either normalization as a match.
+        CONTRACTION_REMNANTS = {"s", "t", "d", "m"}
+
+        def filter_1_letter(s, fuse=False):
+            words = s.split()
+            result = []
+            for w in words:
+                if len(w) > 1 or w.isdigit():
+                    result.append(w)
+                elif fuse and w in CONTRACTION_REMNANTS and result:
+                    result[-1] += w
+                # else: single-letter noise - drop it.
+            return " ".join(result)
 
         sortkeys = item.get("sortkeys", {})
         if not isinstance(sortkeys, dict):
@@ -144,7 +153,7 @@ class Streams:
         if not titles:
             return False
 
-        def title_matches(title, merge_apostrophes):
+        def title_matches(title, fuse):
             # Match only against the title portion PTN parsed out of the
             # filename (everything before the year/SxxEyy marker), not the
             # raw filename as a whole. Beyond that marker there's often an
@@ -154,10 +163,10 @@ class Streams:
             # show titled "Dark" matching some other show's
             # "...S03E03.A.Dark.Web..." episode). Fall back to the raw
             # filename if PTN couldn't find a title at all.
-            file_clean = clean_str(ptn_title or file_name_raw, merge_apostrophes)
-            file_clean_filtered = filter_1_letter(file_clean)
+            file_clean = clean_str(ptn_title or file_name_raw)
+            file_clean_filtered = filter_1_letter(file_clean, fuse)
 
-            title_clean = clean_str(str(title), merge_apostrophes)
+            title_clean = clean_str(str(title))
             raw_words = title_clean.split()
 
             if len(raw_words) <= 2:
@@ -169,7 +178,7 @@ class Streams:
                 title_for_match = title_clean
                 file_for_match = file_clean
             else:
-                title_for_match = filter_1_letter(title_clean)
+                title_for_match = filter_1_letter(title_clean, fuse)
                 file_for_match = file_clean_filtered
                 if not title_for_match:
                     title_for_match = title_clean
@@ -199,8 +208,8 @@ class Streams:
                 return False
 
             if ptn_title:
-                ptn_clean = clean_str(ptn_title, merge_apostrophes)
-                ptn_filtered = filter_1_letter(ptn_clean)
+                ptn_clean = clean_str(ptn_title)
+                ptn_filtered = filter_1_letter(ptn_clean, fuse)
                 ptn_strong = [w for w in ptn_filtered.split() if w not in STOP_WORDS]
                 meaningful_extras = [w for w in ptn_strong if w not in strong_words and w not in ALLOWED_EXTRAS]
 

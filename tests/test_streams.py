@@ -87,19 +87,35 @@ def test_get_title_uses_metadata_name_when_filename_has_no_real_title():
 
 
 def test_apostrophe_dropped_and_merged_into_word_still_matches():
-    # Some releases drop a title's apostrophe entirely instead of keeping it
-    # or replacing it with a separator: "Margo's Got Money Troubles" ->
-    # "Margos.Got.Money.Troubles...". clean_str's space-for-apostrophe
-    # normalization alone turns the search title into "margo s got money
-    # troubles", so "margo" (without the s) never matches the filename's
-    # "margos" - this needs the apostrophe-merge fallback in title_matches.
+    # sgd.meta.Meta stores titles after running them through sanitize(),
+    # which already turns "'" into a space - so by the time a title reaches
+    # is_semi_valid_title, "Margo's Got Money Troubles" has already become
+    # "margo s got money troubles" (a real production example, confirmed
+    # from logs). Some releases then drop the apostrophe entirely and fuse
+    # the letters together instead: "Margos.Got.Money.Troubles...". Without
+    # fusing that lone "s" back onto "margo", the title's strong words
+    # ("margo", ...) never line up with the filename's single "margos"
+    # token, and "margos" then gets flagged as an unexplained extra word.
     from sgd.ptn import parse_title
 
-    s = make_streams(titles=["Margo's Got Money Troubles"], id="tt0000000")
+    s = make_streams(titles=["margo s got money troubles"], id="tt0000000")
     name = (
         "Margos.Got.Money.Troubles.S01E01.The.Hungry.Ghost.1080p.ATVP."
         "WEB-DL.DDP5.1.Atmos.H.264.DUAL-JHOM.mkv"
     )
+    s.item = {"name": name}
+    parsed = parse_title(name)
+    assert s.is_semi_valid_title({"sortkeys": parsed.sortkeys})
+
+
+def test_apostrophe_kept_in_filename_still_matches_sanitized_title():
+    # Same show, but this release keeps the apostrophe in the filename
+    # ("Margo's..."). Should still match the same (already-sanitized,
+    # space-separated) search title.
+    from sgd.ptn import parse_title
+
+    s = make_streams(titles=["margo s got money troubles"], id="tt0000000")
+    name = "Margo's.Got.Money.Troubles.S01E01.2160p.ATVP.WEB-DL.DD5.1.DV.HDR.H.265.mkv"
     s.item = {"name": name}
     parsed = parse_title(name)
     assert s.is_semi_valid_title({"sortkeys": parsed.sortkeys})
