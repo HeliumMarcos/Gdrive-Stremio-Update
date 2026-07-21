@@ -28,10 +28,17 @@ class GoogleDrive:
         cleaned_string = string.replace(".", " ").replace("'", " ").replace(":", " ").replace("-", " ")
         cleaned_string = " ".join(cleaned_string.split())
 
-        all_words = []
-        for w in cleaned_string.split(splitter):
-            if w and (len(w) > 1 or w.isdigit()):
-                all_words.append(w)
+        raw_words = [w for w in cleaned_string.split(splitter) if w]
+        # For very short titles, a single-letter word (e.g. the "D" in
+        # "Dia D") is often essential, not noise - dropping it turns a
+        # distinctive title into a much more common word and makes the
+        # Drive query match far too many unrelated files. Only drop
+        # 1-letter words when there's enough other content to stay
+        # specific.
+        if len(raw_words) <= 2:
+            all_words = raw_words
+        else:
+            all_words = [w for w in raw_words if len(w) > 1 or w.isdigit()]
 
         strong_words = [w for w in all_words if w.lower() not in STOP_WORDS]
 

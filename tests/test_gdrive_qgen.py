@@ -24,9 +24,17 @@ def test_qgen_splits_on_custom_splitter():
 
 
 def test_qgen_drops_single_letter_words():
-    # Single-letter, non-digit tokens are noise and get filtered out.
+    # Single-letter, non-digit tokens are noise and get filtered out...
     q = GoogleDrive.qgen("a, b, c", chain="or", splitter=", ", method="name")
     assert q == ""
+
+
+def test_qgen_keeps_single_letter_word_in_short_titles():
+    # ...but not when the title itself is short: dropping "d" from "Dia D"
+    # (Portuguese for "D-Day") would turn a distinctive title into a much
+    # more common word ("dia") and match far too many unrelated files.
+    q = GoogleDrive.qgen("Dia D")
+    assert q == "name contains 'Dia' and name contains 'D'"
 
 
 def test_qgen_strips_punctuation():

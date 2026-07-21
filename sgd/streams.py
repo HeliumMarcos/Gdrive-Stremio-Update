@@ -147,29 +147,40 @@ class Streams:
 
         for title in titles:
             title_clean = clean_str(str(title))
-            title_clean_filtered = filter_1_letter(title_clean)
-            
-            if not title_clean_filtered:
-                title_clean_filtered = title_clean
-                file_clean_filtered = file_clean
-            
-            words = title_clean_filtered.split()
+            raw_words = title_clean.split()
+
+            if len(raw_words) <= 2:
+                # Very short titles: match the literal phrase, keeping any
+                # single-letter word (e.g. the "D" in "Dia D"). Dropping it
+                # would collapse a distinctive short title into a far more
+                # common word ("Dia D" -> just "dia") that matches almost
+                # any file containing that word anywhere, adjacent or not.
+                title_for_match = title_clean
+                file_for_match = file_clean
+            else:
+                title_for_match = filter_1_letter(title_clean)
+                file_for_match = file_clean_filtered
+                if not title_for_match:
+                    title_for_match = title_clean
+                    file_for_match = file_clean
+
+            words = title_for_match.split()
             strong_words = [w for w in words if w not in STOP_WORDS]
             if not strong_words: strong_words = words
 
             is_match_candidate = False
-            
-            if len(words) <= 2:
-                if f" {title_clean_filtered} " in f" {file_clean_filtered} ":
+
+            if len(raw_words) <= 2:
+                if f" {title_for_match} " in f" {file_for_match} ":
                     is_match_candidate = True
                 else:
-                    pattern = r'\b' + re.escape(title_clean_filtered) + r'\b'
-                    if re.search(pattern, file_clean_filtered):
+                    pattern = r'\b' + re.escape(title_for_match) + r'\b'
+                    if re.search(pattern, file_for_match):
                         is_match_candidate = True
             else:
-                file_tokens = set(file_clean_filtered.split())
+                file_tokens = set(file_for_match.split())
                 missing = [w for w in strong_words if w not in file_tokens]
-                
+
                 if not missing or (len(strong_words) >= 4 and len(missing) <= 1):
                     is_match_candidate = True
 

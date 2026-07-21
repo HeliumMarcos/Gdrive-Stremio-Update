@@ -78,3 +78,26 @@ def test_quality_tags_do_not_cause_matches():
     ]
     for file_name, title in cases:
         assert not is_match(file_name, [title], "movie"), f"{title!r} should NOT match {file_name!r}"
+
+
+def test_short_title_with_single_letter_word_matches_its_own_file():
+    # "Dia D" (Portuguese for "D-Day") must still match its own release,
+    # with or without the single-letter "D" joined by a different
+    # separator (dot/dash/underscore all normalize to a space).
+    for file_name in [
+        "Dia.D.2026.1080p.AMZN.WEB-DL.DDP5.1.H.264.tt15047880.mkv",
+        "Dia-D.2026.1080p.AMZN.WEB-DL.DDP5.1.H.264.mkv",
+        "Dia_D.2026.1080p.AMZN.WEB-DL.DDP5.1.H.264.mkv",
+        "Dia D (2026) 1080p AMZN WEB-DL DDP5.1 H.264.mkv",
+    ]:
+        assert is_match(file_name, ["dia d"], "movie"), f"'dia d' should match {file_name!r}"
+
+
+def test_short_title_single_letter_word_is_not_dropped_as_noise():
+    # Regression: "dia d" used to be reduced to just "dia" (single-letter
+    # words were stripped as noise), so any unrelated file containing the
+    # common word "dia" anywhere would incorrectly match.
+    assert not is_match(
+        "Um.Dia.De.Sorte.Em.Nova.York.2026.1080p.AMZN.WEB-DL.DDP5.1.H.264.DUAL-JHOM.mkv",
+        ["dia d"], "movie",
+    )
