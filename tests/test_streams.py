@@ -86,6 +86,25 @@ def test_get_title_uses_metadata_name_when_filename_has_no_real_title():
     assert line3 == "🎬 Dia D - (2016)"
 
 
+def test_apostrophe_dropped_and_merged_into_word_still_matches():
+    # Some releases drop a title's apostrophe entirely instead of keeping it
+    # or replacing it with a separator: "Margo's Got Money Troubles" ->
+    # "Margos.Got.Money.Troubles...". clean_str's space-for-apostrophe
+    # normalization alone turns the search title into "margo s got money
+    # troubles", so "margo" (without the s) never matches the filename's
+    # "margos" - this needs the apostrophe-merge fallback in title_matches.
+    from sgd.ptn import parse_title
+
+    s = make_streams(titles=["Margo's Got Money Troubles"], id="tt0000000")
+    name = (
+        "Margos.Got.Money.Troubles.S01E01.The.Hungry.Ghost.1080p.ATVP."
+        "WEB-DL.DDP5.1.Atmos.H.264.DUAL-JHOM.mkv"
+    )
+    s.item = {"name": name}
+    parsed = parse_title(name)
+    assert s.is_semi_valid_title({"sortkeys": parsed.sortkeys})
+
+
 def test_no_titles_never_matches():
     s = make_streams(titles=[])
     s.item = {"name": "Pirates.of.the.Goolag.2016.mkv"}
