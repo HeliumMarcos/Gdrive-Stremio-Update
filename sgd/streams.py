@@ -99,12 +99,23 @@ class Streams:
 
     def is_semi_valid_title(self, item):
         file_name_raw = str(self.item.get("name", ""))
-        
+
         imdb_id = getattr(self.strm_meta, "id", None)
         if imdb_id and str(imdb_id).lower() in file_name_raw.lower():
             return True
 
-        def clean_str(s):
+        def clean_str(s, merge_apostrophes=False):
+            # An apostrophe plays two different roles depending on how a
+            # release names things: as a word separator some renamers use
+            # in place of a space ("Dia'D" for "Dia D"), or as part of a
+            # contraction/possessive that a filename may just drop entirely
+            # ("Margo's Got Money Troubles" -> "Margos.Got.Money.Troubles").
+            # There's no way to tell which one applies without trying both:
+            # merge_apostrophes=False treats it as a separator (space),
+            # merge_apostrophes=True deletes it so the surrounding letters
+            # fuse into one word.
+            if merge_apostrophes:
+                s = s.replace("'", "")
             s = strip_accents(s)
             s = re.sub(r"[^a-zA-Z0-9]", " ", s).lower()
             return " ".join(s.split())
@@ -117,36 +128,36 @@ class Streams:
             sortkeys = {}
         ptn_title = sortkeys.get("title", "")
 
-        # Match only against the title portion PTN parsed out of the
-        # filename (everything before the year/SxxEyy marker), not the raw
-        # filename as a whole. Beyond that marker there's often an episode
-        # title, quality tags, or a release group, and a short/generic
-        # search title can spuriously match a word that only appears there
-        # rather than in the actual title (e.g. a show titled "Dark"
-        # matching some other show's "...S03E03.A.Dark.Web..." episode).
-        # Fall back to the raw filename if PTN couldn't find a title at all.
-        file_clean = clean_str(ptn_title or file_name_raw)
-        file_clean_filtered = filter_1_letter(file_clean)
-
         ALLOWED_EXTRAS = {
-            "filme", "movie", "series", "serie", "temporada", "season", 
-            "pt", "br", "dublado", "legendado", "dual", "audio", "remastered", 
-            "remaster", "director", "cut", "extended", "unrated", "edition", 
-            "part", "parte", "vol", "volume", "ep", "episodio", "1080p", "4k", 
+            "filme", "movie", "series", "serie", "temporada", "season",
+            "pt", "br", "dublado", "legendado", "dual", "audio", "remastered",
+            "remaster", "director", "cut", "extended", "unrated", "edition",
+            "part", "parte", "vol", "volume", "ep", "episodio", "1080p", "4k",
             "2160p", "720p", "hd", "web", "dl", "bluray", "remux", "tv",
-            "h264", "h265", "hevc", "avc", "aac", "ddp", "atmos", "x264", "x265", 
+            "h264", "h265", "hevc", "avc", "aac", "ddp", "atmos", "x264", "x265",
             "amzn", "nf", "dsnp", "max", "hbo", "peacock", "hulu", "apple", "appletv",
             "bioma", "c76", "lapumia", "wolverdon", "bludv", "comandotorrents", "comando",
             "torrent", "torrents", "yts", "yify", "rarbg", "rmteam", "mkv", "mp4", "avi"
         }
 
-        match_found = False
         titles = getattr(self.strm_meta, 'titles', [])
         if not titles:
             return False
 
-        for title in titles:
-            title_clean = clean_str(str(title))
+        def title_matches(title, merge_apostrophes):
+            # Match only against the title portion PTN parsed out of the
+            # filename (everything before the year/SxxEyy marker), not the
+            # raw filename as a whole. Beyond that marker there's often an
+            # episode title, quality tags, or a release group, and a
+            # short/generic search title can spuriously match a word that
+            # only appears there rather than in the actual title (e.g. a
+            # show titled "Dark" matching some other show's
+            # "...S03E03.A.Dark.Web..." episode). Fall back to the raw
+            # filename if PTN couldn't find a title at all.
+            file_clean = clean_str(ptn_title or file_name_raw, merge_apostrophes)
+            file_clean_filtered = filter_1_letter(file_clean)
+
+            title_clean = clean_str(str(title), merge_apostrophes)
             raw_words = title_clean.split()
 
             if len(raw_words) <= 2:
@@ -184,20 +195,25 @@ class Streams:
                 if not missing or (len(strong_words) >= 4 and len(missing) <= 1):
                     is_match_candidate = True
 
-            if is_match_candidate:
-                if ptn_title:
-                    ptn_clean = clean_str(ptn_title)
-                    ptn_filtered = filter_1_letter(ptn_clean)
-                    ptn_strong = [w for w in ptn_filtered.split() if w not in STOP_WORDS]
-                    meaningful_extras = [w for w in ptn_strong if w not in strong_words and w not in ALLOWED_EXTRAS]
-                    
-                    if len(meaningful_extras) > 0:
-                        continue 
-                
-                match_found = True
-                break
+            if not is_match_candidate:
+                return False
 
-        return match_found
+            if ptn_title:
+                ptn_clean = clean_str(ptn_title, merge_apostrophes)
+                ptn_filtered = filter_1_letter(ptn_clean)
+                ptn_strong = [w for w in ptn_filtered.split() if w not in STOP_WORDS]
+                meaningful_extras = [w for w in ptn_strong if w not in strong_words and w not in ALLOWED_EXTRAS]
+
+                if len(meaningful_extras) > 0:
+                    return False
+
+            return True
+
+        for title in titles:
+            if title_matches(title, False) or title_matches(title, True):
+                return True
+
+        return False
 
     def get_title(self, res_raw):
         file_name = str(self.item.get("name", "Unknown"))
