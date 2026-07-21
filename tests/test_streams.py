@@ -58,6 +58,17 @@ def test_rejects_when_parsed_title_has_unexplained_extra_words():
     assert not matched
 
 
+def test_apostrophe_in_filename_matches_spaced_search_title():
+    # A release can style a short title with an apostrophe instead of a
+    # space ("Dia'D" for "Dia D"). clean_str() turns any non-alphanumeric
+    # character (including "'") into a space on both sides of the
+    # comparison, so this should still match. Use an id that isn't in the
+    # filename so the id shortcut doesn't mask this path.
+    s = make_streams(titles=["Dia D"], id="tt0000000")
+    s.item = {"name": "Dia'D (2026) WEB-DL 2160p DV HDR10+ DDP5.1 H.265.mkv"}
+    assert s.is_semi_valid_title({"sortkeys": {"title": "Dia'D"}})
+
+
 def test_no_titles_never_matches():
     s = make_streams(titles=[])
     s.item = {"name": "Pirates.of.the.Goolag.2016.mkv"}
