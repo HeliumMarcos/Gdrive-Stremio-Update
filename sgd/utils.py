@@ -66,11 +66,12 @@ def is_year(string):
         return False
 
 
-def sanitize(string, valid_chars=". "):
+def sanitize(string, valid_chars=". ", lower=True):
     """Return alphanumeric input with certain non alphanumeric chars intact"""
     # Deixamos os acentos intactos aqui para o meta.py poder criar as duas versões
     chars = [ch if ch.isalnum() or ch in valid_chars else " " for ch in string]
-    return " ".join("".join(chars).split()).lower()
+    result = " ".join("".join(chars).split())
+    return result.lower() if lower else result
 
 
 def req_wrapper(url, time_out=3):

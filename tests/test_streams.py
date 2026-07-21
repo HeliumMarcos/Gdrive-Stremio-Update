@@ -69,6 +69,23 @@ def test_apostrophe_in_filename_matches_spaced_search_title():
     assert s.is_semi_valid_title({"sortkeys": {"title": "Dia'D"}})
 
 
+def test_get_title_uses_metadata_name_when_filename_has_no_real_title():
+    # File was matched by id alone (name has no real title text, just
+    # quality tags): "WEB-DL 2160p DV HDR10+ DDP5.1 H.265 tt15047880.mkv".
+    # PTN parses "DV" as the (bogus) leftover title. The displayed line3
+    # title should come from the metadata name instead of that fragment.
+    from sgd.ptn import parse_title
+
+    s = make_streams(name="Dia D", titles=["dia d"], id="tt15047880")
+    s.item = {"name": "WEB-DL 2160p DV HDR10+ DDP5.1 H.265 tt15047880.mkv"}
+    s.parsed = parse_title(s.item["name"])
+
+    title = s.get_title("2160p")
+    line3 = title.splitlines()[0]
+
+    assert line3 == "🎬 Dia D - (2016)"
+
+
 def test_no_titles_never_matches():
     s = make_streams(titles=[])
     s.item = {"name": "Pirates.of.the.Goolag.2016.mkv"}

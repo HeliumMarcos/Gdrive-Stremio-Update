@@ -300,13 +300,16 @@ class Streams:
         # Nome Limpo (Fallback via PTN)
         keys = getattr(self.parsed, 'sortkeys', {})
         if not isinstance(keys, dict): keys = {}
-        title_clean = keys.get("title", "Titulo")
-        
-        # 1. Título PT-BR vem do nome principal do metadado
-        titulo_pt = getattr(self.strm_meta, 'name', title_clean)
-        
+        title_clean = keys.get("title") or "Titulo"
+
+        # 1. Título PT-BR vem do nome principal do metadado (IMDb/TMDB).
+        # Só cai pro título extraído do nome do arquivo se a metadata não
+        # trouxe nada - isso evita mostrar lixo tipo "DV" quando o nome do
+        # arquivo não tem um título de verdade (ex: foi achado só pelo ID).
+        titulo_pt = getattr(self.strm_meta, 'name', None) or title_clean
+
         # 2. Tenta pegar o título original dos atributos diretos
-        titulo_original = getattr(self.strm_meta, 'originalName', getattr(self.strm_meta, 'original_title', ''))
+        titulo_original = getattr(self.strm_meta, 'original_title', None) or ''
 
         # 3. Se não veio atributo direto (ou se veio igual ao PT), procura na lista de 'titles' alternativos
         if not titulo_original or str(titulo_original).lower() == str(titulo_pt).lower():
