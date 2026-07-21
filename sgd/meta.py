@@ -85,22 +85,28 @@ class IMDb:
             tmdb_id = item.get("id")
             
             original_title = item.get("original_title") or item.get("original_name")
-            if original_title: self.titles.append(ut.sanitize(original_title))
-            
+            if original_title:
+                self.titles.append(ut.sanitize(original_title))
+                if not self.original_title:
+                    self.original_title = ut.sanitize(original_title, lower=False)
+
             eng_title = item.get("title") or item.get("name")
             if eng_title: self.titles.append(ut.sanitize(eng_title))
-            
+
             date_str = item.get("release_date") or item.get("first_air_date")
             if date_str and len(date_str) >= 4 and ut.is_year(date_str[:4]):
                 self.year = date_str[:4]
-                
+
             pt_url = f"api.themoviedb.org/3/{media_type}/{tmdb_id}?api_key={tmdb_key}&language=pt-BR"
             pt_resp = ut.req_wrapper(pt_url)
             if pt_resp:
                 pt_data = json.loads(pt_resp)
                 pt_title = pt_data.get("title") or pt_data.get("name")
-                if pt_title: self.titles.append(ut.sanitize(pt_title))
-                
+                if pt_title:
+                    self.titles.append(ut.sanitize(pt_title))
+                    if not self.name:
+                        self.name = ut.sanitize(pt_title, lower=False)
+
             return True
 
         except Exception as e:
@@ -123,16 +129,22 @@ class IMDb:
                 h4_itemprop = r_title_block.find("h4", attrs={"itemprop": "name"})
 
                 title = ""
+                display_title = ""
                 if h4_itemprop:
-                    t_text = ut.sanitize(h4_itemprop.find("a").text) + " "
+                    raw_h4 = h4_itemprop.find("a").text
+                    t_text = ut.sanitize(raw_h4) + " "
                     if "golden globe" not in t_text.lower():
                         title = t_text
+                        display_title = ut.sanitize(raw_h4, lower=False) + " "
 
                 if h3_itemprop:
-                    t_text = ut.sanitize(h3_itemprop.find("a").text)
+                    raw_h3 = h3_itemprop.find("a").text
+                    t_text = ut.sanitize(raw_h3)
                     if "golden globe" not in t_text.lower():
                         title += t_text
                         self.titles.append(title)
+                        if not self.name:
+                            self.name = (display_title + ut.sanitize(raw_h3, lower=False)).strip()
 
                     if not self.year:
                         try:
@@ -190,10 +202,13 @@ class IMDb:
         return False
 
     def set_meta(self, meta, year="year", title="name"):
-        clean_title = ut.sanitize(meta.get(title, ""))
+        raw_title = meta.get(title, "")
+        clean_title = ut.sanitize(raw_title)
         if "golden globe" not in clean_title.lower():
             self.titles.append(clean_title)
-            
+            if not self.name and clean_title:
+                self.name = ut.sanitize(raw_title, lower=False)
+
         y = str(meta.get(year, "")).split("–")[0]
         if y and ut.is_year(y):
             self.year = y
@@ -202,6 +217,8 @@ class IMDb:
 class Meta(IMDb):
     def __init__(self, stream_type, stream_id):
         self.titles = []
+        self.name = None
+        self.original_title = None
         self.year = None
         self.ep = 0
         self.se = 0
