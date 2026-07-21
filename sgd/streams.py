@@ -112,13 +112,21 @@ class Streams:
         def filter_1_letter(s):
             return " ".join([w for w in s.split() if len(w) > 1 or w.isdigit()])
 
-        file_clean = clean_str(file_name_raw)
-        file_clean_filtered = filter_1_letter(file_clean)
-
         sortkeys = item.get("sortkeys", {})
         if not isinstance(sortkeys, dict):
             sortkeys = {}
         ptn_title = sortkeys.get("title", "")
+
+        # Match only against the title portion PTN parsed out of the
+        # filename (everything before the year/SxxEyy marker), not the raw
+        # filename as a whole. Beyond that marker there's often an episode
+        # title, quality tags, or a release group, and a short/generic
+        # search title can spuriously match a word that only appears there
+        # rather than in the actual title (e.g. a show titled "Dark"
+        # matching some other show's "...S03E03.A.Dark.Web..." episode).
+        # Fall back to the raw filename if PTN couldn't find a title at all.
+        file_clean = clean_str(ptn_title or file_name_raw)
+        file_clean_filtered = filter_1_letter(file_clean)
 
         ALLOWED_EXTRAS = {
             "filme", "movie", "series", "serie", "temporada", "season", 
